@@ -1,15 +1,16 @@
-  DEVICE ZXSPECTRUMNEXT
+  device zxspectrumnext
 
-  org $7E00
+  org $2000
 
 start:
-  ld a,0
-border:
-  out $FE,a
-  inc a
-  and 7
-  jr border
+  ld hl,message
+loop: 
+  ld a,(hl)
+  or a
+  ret z
+  rst $10
+  inc hl
+  jp loop
 
-  SAVENEX OPEN "foo.nex",start,$FFFE,9
-  SAVENEX BANK 5
-  SAVENEX CLOSE
+message:
+  db 'Hello, world!',$0d,0
