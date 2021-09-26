@@ -1,6 +1,13 @@
+  ;; To execute from BASIC:
+  ;;
+  ;; 10 CLEAR 32767
+  ;; 20 LOAD "foo.bin" CODE 32768
+  ;; 30 RANDOMIZE USR 32768
+  ;; 40 PAUSE 0
+
   device zxspectrumnext
 
-  org $2000
+  org $8000
 
 start:
   ld hl,message
