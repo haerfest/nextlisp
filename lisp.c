@@ -14,6 +14,7 @@
 typedef enum {
   TOKEN_TYPE_LIST_BEGIN,
   TOKEN_TYPE_LIST_END,
+  TOKEN_TYPE_QUOTE,
   TOKEN_TYPE_ATOM
 } token_type_t;
 
@@ -112,6 +113,11 @@ void tokenize(char* s, tokens_t* tokens) {
         s++;
         break;
 
+      case '\'':
+        add_token(tokens, TOKEN_TYPE_QUOTE, NULL);
+        s++;
+        break;
+
       case '"':
       {
         char* start      = s;
@@ -166,15 +172,19 @@ void print_tokens(tokens_t* tokens) {
 
     switch (token->type) {
       case TOKEN_TYPE_LIST_BEGIN:
-        printf("LIST( ");
+        printf("[(] ");
         break;
 
       case TOKEN_TYPE_LIST_END:
-        printf(")LIST ");
+        printf("[)] ");
+        break;
+
+      case TOKEN_TYPE_QUOTE:
+        printf("['] ");
         break;
 
       case TOKEN_TYPE_ATOM:
-        printf("ATOM(%s) ", token->value);
+        printf("[%s] ", token->value);
         break;
     }
   }
@@ -247,6 +257,20 @@ expr_t* make_atom(char* value) {
 }
 
 
+expr_t* quote(expr_t* expr) {
+  expr_t* quote       = malloc(sizeof(expr_t));
+  quote->type         = EXPR_TYPE_SYMBOL;
+  quote->value.symbol = "QUOTE";
+  
+  expr_t* pair = malloc(sizeof(expr_t));
+  pair->type           = EXPR_TYPE_PAIR;
+  pair->value.pair.car = quote;
+  pair->value.pair.cdr = expr;
+
+  return pair;
+}
+
+
 expr_t* parse(tokens_t* tokens, size_t* index) {
   if (*index == tokens->count) {
     return NULL;
@@ -256,6 +280,13 @@ expr_t* parse(tokens_t* tokens, size_t* index) {
     case TOKEN_TYPE_ATOM:
       return make_atom(tokens->tokens[*index].value);
 
+    case TOKEN_TYPE_QUOTE:
+    {
+      (*index)++;
+      expr_t* expr = parse(tokens, index);
+      return quote(expr);
+    }
+    
     case TOKEN_TYPE_LIST_BEGIN:
     {
       expr_t* prev_expr = NULL;
@@ -282,11 +313,11 @@ expr_t* parse(tokens_t* tokens, size_t* index) {
       }
 
       return expr;
-
+    }
+    
     case TOKEN_TYPE_LIST_END:
       error("unexpected open bracket");
       break;
-    }
   }
 
   return NULL;
