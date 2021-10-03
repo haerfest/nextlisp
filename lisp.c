@@ -7,6 +7,7 @@
 
 #include <ctype.h>
 #include <setjmp.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -60,7 +61,7 @@ typedef struct expr_t {
 typedef int env_t;
 
 
-jmp_buf jmp_env;
+jmp_buf restart;
 
 
 char* skip_whitespace(char* s) {
@@ -72,14 +73,18 @@ char* skip_whitespace(char* s) {
 }
 
 
-void error(char* message) {
-  fprintf(stderr, "error: %s\n", message);
-}
+void error(char* fmt, ...) {
+  va_list arg;
 
+  fprintf(stderr, "error: ");
 
-void fatal(char* message) {
-  error(message);
-  exit(1);
+  va_start(arg, fmt);
+  vfprintf(stderr, fmt, arg);
+  va_end(arg);
+
+  fprintf(stderr, "\n");
+
+  longjmp(restart, 1);
 }
 
 
@@ -142,9 +147,8 @@ void tokenize(char* s, tokens_t* tokens) {
         }
 
         if (*s == '\0') {
-          error("unterminated string");
           free_tokens(tokens);
-          longjmp(jmp_env, 1);
+          error("unterminated string");
         }
 
         s++;
@@ -285,8 +289,7 @@ expr_t* quote(expr_t* expr) {
 
 expr_t* parse(tokens_t* tokens, size_t* index) {
   if (*index == tokens->count) {
-    perror("incomplete expression");
-    longjmp(jmp_env, 1);
+    error("incomplete expression");
   }
 
   switch (tokens->tokens[*index].type) {
@@ -302,7 +305,6 @@ expr_t* parse(tokens_t* tokens, size_t* index) {
 
     case TOKEN_TYPE_DOT:
       error("unexpected dot");
-      longjmp(jmp_env, 1);
       break;
 
     case TOKEN_TYPE_LIST_BEGIN:
@@ -325,15 +327,13 @@ expr_t* parse(tokens_t* tokens, size_t* index) {
       }
 
       if (*index == tokens->count) {
-        error("expected close bracket");
         free_expr(expr);
-        longjmp(jmp_env, 1);
+        error("expected close bracket");
       }
 
       if (tokens->tokens[*index].type == TOKEN_TYPE_DOT) {
         if (!prev_expr) {
           error("unexpected dot");
-          longjmp(jmp_env, 1);
         }
 
         (*index)++;
@@ -345,7 +345,7 @@ expr_t* parse(tokens_t* tokens, size_t* index) {
     
     case TOKEN_TYPE_LIST_END:
       error("unexpected close bracket");
-      longjmp(jmp_env, 1);
+      break;
   }
 
   return NULL;
@@ -422,13 +422,15 @@ expr_t* eval(expr_t* expr, env_t* env) {
       return expr;
 
     case EXPR_TYPE_SYMBOL:
-      error("symbol not defined");
-      longjmp(jmp_env, 1);
+      error("%s undefined", expr->value.symbol);
+      break;
 
     case EXPR_TYPE_PAIR:
       error("not implemented");
-      longjmp(jmp_env, 1);
+      break;
   }
+
+  return NULL;
 }
 
 
@@ -440,7 +442,7 @@ int main(int argc, char* argv[]) {
   env_t*  env = NULL;
   expr_t* expr;
 
-  (void) setjmp(jmp_env);
+  (void) setjmp(restart);
 
   for (;;) {
     expr = read(stdin);
