@@ -15,6 +15,7 @@ typedef enum {
   TOKEN_TYPE_LIST_BEGIN,
   TOKEN_TYPE_LIST_END,
   TOKEN_TYPE_QUOTE,
+  TOKEN_TYPE_DOT,
   TOKEN_TYPE_ATOM
 } token_type_t;
 
@@ -118,6 +119,11 @@ void tokenize(char* s, tokens_t* tokens) {
         s++;
         break;
 
+      case '.':
+        add_token(tokens, TOKEN_TYPE_DOT, NULL);
+        s++;
+        break;
+        
       case '"':
       {
         char* start      = s;
@@ -181,6 +187,10 @@ void print_tokens(tokens_t* tokens) {
 
       case TOKEN_TYPE_QUOTE:
         printf("['] ");
+        break;
+
+      case TOKEN_TYPE_DOT:
+        printf("[.] ");
         break;
 
       case TOKEN_TYPE_ATOM:
@@ -273,6 +283,7 @@ expr_t* quote(expr_t* expr) {
 
 expr_t* parse(tokens_t* tokens, size_t* index) {
   if (*index == tokens->count) {
+    perror("incomplete expression");
     return NULL;
   }
 
@@ -286,13 +297,17 @@ expr_t* parse(tokens_t* tokens, size_t* index) {
       expr_t* expr = parse(tokens, index);
       return quote(expr);
     }
-    
+
+    case TOKEN_TYPE_DOT:
+      error("unexpected dot");
+      return NULL;
+
     case TOKEN_TYPE_LIST_BEGIN:
     {
       expr_t* prev_expr = NULL;
       expr_t* expr      = NULL;
 
-      while (++(*index) < tokens->count && tokens->tokens[*index].type != TOKEN_TYPE_LIST_END) {
+      while (++(*index) < tokens->count && tokens->tokens[*index].type != TOKEN_TYPE_DOT && tokens->tokens[*index].type != TOKEN_TYPE_LIST_END) {
         expr_t* this_expr         = malloc(sizeof(expr_t));
         this_expr->type           = EXPR_TYPE_PAIR;
         this_expr->value.pair.car = parse(tokens, index);
@@ -312,11 +327,21 @@ expr_t* parse(tokens_t* tokens, size_t* index) {
         break;
       }
 
+      if (tokens->tokens[*index].type == TOKEN_TYPE_DOT) {
+        if (!prev_expr) {
+          error("unexpected dot");
+          return NULL;
+        }
+
+        (*index)++;
+        prev_expr->value.pair.cdr = parse(tokens, index);
+      }
+
       return expr;
     }
     
     case TOKEN_TYPE_LIST_END:
-      error("unexpected open bracket");
+      error("unexpected close bracket");
       break;
   }
 
