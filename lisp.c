@@ -399,13 +399,11 @@ expr_t* read(FILE* in) {
 
   tokens_t tokens = {0, NULL};
   tokenize(buffer, &tokens);
-  print_tokens(&tokens);
 
   size_t  start = 0;
   expr_t* expr  = parse(&tokens, &start);
   free_tokens(&tokens);
-  print_expr(expr);
-  printf("\n");
+
   return expr;
 }
 
@@ -426,8 +424,13 @@ expr_t* eval(expr_t* expr, env_t* env) {
       break;
 
     case EXPR_TYPE_PAIR:
-      error("not implemented");
+    {
+      expr_t* procedure = eval(expr->value.pair.car, env);
+      if (procedure->type != EXPR_TYPE_SYMBOL) {
+        error("not a procedure");
+      }
       break;
+    }
   }
 
   return NULL;
@@ -435,6 +438,36 @@ expr_t* eval(expr_t* expr, env_t* env) {
 
 
 void print(expr_t* expr) {
+  if (expr == NULL) {
+    printf("NIL");
+    return;
+  }
+
+  switch (expr->type) {
+    case EXPR_TYPE_SYMBOL:
+      printf("%s", expr->value.symbol);
+      break;
+
+    case EXPR_TYPE_STRING:
+      printf("%s", expr->value.string);
+      break;
+
+    case EXPR_TYPE_FIXED:
+      printf("%d", expr->value.fixed);
+      break;
+
+    case EXPR_TYPE_FLOATING:
+      printf("%f", expr->value.floating);
+      break;
+
+    case EXPR_TYPE_PAIR:
+      printf("(");
+      print(expr->value.pair.car);
+      printf(" ");
+      print(expr->value.pair.cdr);
+      printf(")");
+      break;
+  }
 }
 
 
@@ -448,6 +481,7 @@ int main(int argc, char* argv[]) {
     expr = read(stdin);
     expr = eval(expr, env);
     print(expr);
+    printf("\n");
   }
 
   return 0;
