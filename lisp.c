@@ -1,21 +1,19 @@
+/**
+ * To compile on macOS:
+ *
+ * $ cc -std=c89 -Wall lisp.c -o lisp
+ */
+
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 
-char* skip_whitespace(char* s) {
-  while (*s == ' ' || *s == '\t' || *s == '\n') {
-    s++;
-  }
-
-  return s;
-}
-
-
 typedef enum {
-  TOKEN_LIST_BEGIN,
-  TOKEN_LIST_END,
-  TOKEN_ATOM
+  TOKEN_TYPE_LIST_BEGIN,
+  TOKEN_TYPE_LIST_END,
+  TOKEN_TYPE_ATOM
 } token_type_t;
 
 
@@ -31,6 +29,38 @@ typedef struct {
 } tokens_t;
 
 
+
+
+typedef enum {
+  EXPR_TYPE_ATOM,
+  EXPR_TYPE_PAIR
+} expr_type_t;
+
+
+typedef struct expr_t {
+  expr_type_t type;
+  union {
+    char* atom;
+    struct {
+      struct expr_t* car;
+      struct expr_t* cdr;
+    } pair;
+  } value;
+} expr_t;
+
+
+typedef int env_t;
+
+
+char* skip_whitespace(char* s) {
+  while (*s == ' ' || *s == '\t' || *s == '\n') {
+    s++;
+  }
+
+  return s;
+}
+
+
 void error(char* message) {
   fprintf(stderr, "error: %s\n", message);
 }
@@ -43,12 +73,7 @@ void fatal(char* message) {
 
 
 void add_token(tokens_t* tokens, token_type_t type, char* value) {
-  token_t* reallocated = realloc(tokens->tokens, sizeof(token_t) * (tokens->count + 1));
-  if (reallocated == NULL) {
-    fatal("out of memory");
-  }
-
-  tokens->tokens                      = reallocated;
+  tokens->tokens                      = realloc(tokens->tokens, sizeof(token_t) * (tokens->count + 1));
   tokens->tokens[tokens->count].type  = type;
   tokens->tokens[tokens->count].value = value;
   tokens->count++;
@@ -71,12 +96,12 @@ void tokenize(char* s, tokens_t* tokens) {
 
     switch (*s) {
       case '(':
-        add_token(tokens, TOKEN_LIST_BEGIN, NULL);
+        add_token(tokens, TOKEN_TYPE_LIST_BEGIN, NULL);
         s++;
         break;
 
       case ')':
-        add_token(tokens, TOKEN_LIST_END, NULL);
+        add_token(tokens, TOKEN_TYPE_LIST_END, NULL);
         s++;
         break;
 
@@ -105,10 +130,7 @@ void tokenize(char* s, tokens_t* tokens) {
 
         size_t n     = s - start;
         char*  value = strndup(start, n);
-        if (value == NULL) {
-          fatal("out of memory");
-        }
-        add_token(tokens, TOKEN_ATOM, value);
+        add_token(tokens, TOKEN_TYPE_ATOM, value);
         break;
       }
 
@@ -121,10 +143,7 @@ void tokenize(char* s, tokens_t* tokens) {
 
         size_t n     = s - start;
         char*  value = strndup(start, n);
-        if (value == NULL) {
-          fatal("out of memory");
-        }
-        add_token(tokens, TOKEN_ATOM, value);
+        add_token(tokens, TOKEN_TYPE_ATOM, value);
         break;
       }
     }
@@ -132,45 +151,99 @@ void tokenize(char* s, tokens_t* tokens) {
 }
 
 
-void print_tokens(tokens_t* tokens) {
-  size_t i;
+void free_expr(expr_t* expr) {
+  if (expr == NULL) {
+    return;
+  }
+  
+  switch (expr->type) {
+    case EXPR_TYPE_ATOM:
+      free(expr->value.atom);
+      break;
 
-  printf("%lu tokens\n", tokens->count);
+    case EXPR_TYPE_PAIR:
+      free_expr(expr->value.pair.car);
+      free_expr(expr->value.pair.cdr);
+      break;
+  }
 
-  for (i = 0; i < tokens->count; i++) {
-    token_t* token = &tokens->tokens[i];
+  free(expr);
+}
 
-    switch (token->type) {
-      case TOKEN_LIST_BEGIN:
-        printf("LIST( ");
+
+expr_t* parse(tokens_t* tokens, size_t* index) {
+  if (*index == tokens->count) {
+    return NULL;
+  }
+
+  expr_t* expr;
+
+  switch (tokens->tokens[*index].type) {
+    case TOKEN_TYPE_ATOM:
+      expr             = malloc(sizeof(expr_t));
+      expr->type       = EXPR_TYPE_ATOM;
+      expr->value.atom = strdup(tokens->tokens[*index].value);
+      return expr;
+
+    case TOKEN_TYPE_LIST_BEGIN:
+    {
+      expr_t* prev_expr = NULL;
+
+      while (++(*index) < tokens->count && tokens->tokens[*index].type != TOKEN_TYPE_LIST_END) {
+        expr_t* this_expr         = malloc(sizeof(expr_t));
+        this_expr->type           = EXPR_TYPE_PAIR;
+        this_expr->value.pair.car = parse(tokens, index);
+        this_expr->value.pair.cdr = NULL;
+
+        if (prev_expr) {
+          prev_expr->value.pair.cdr = this_expr;
+        } else {
+          expr = this_expr;
+        }
+        prev_expr = this_expr;
+      }
+
+      if (*index == tokens->count) {
+        error("expected close bracket");
+        free_expr(expr);
         break;
+      }
 
-      case TOKEN_LIST_END:
-        printf(")LIST ");
-        break;
+      return expr;
 
-      case TOKEN_ATOM:
-        printf("ATOM(%s) ", token->value);
-        break;
+    case TOKEN_TYPE_LIST_END:
+      error("unexpected open bracket");
+      break;
     }
   }
 
-  printf("\n");
+  return NULL;
 }
 
 
-void chomp(char* s) {
-  size_t i = strlen(s);
-  if (i > 0 && s[i - 1] == '\n') {
-    s[i - 1] = '\0';
+void print_expr(expr_t* expr) {
+  if (expr == NULL) {
+    printf("NIL");
+    return;
+  }
+
+  switch (expr->type) {
+    case EXPR_TYPE_ATOM:
+      printf("%s", expr->value.atom);
+      break;
+
+    case EXPR_TYPE_PAIR:
+      printf("(");
+      print_expr(expr->value.pair.car);
+      printf(" . ");
+      print_expr(expr->value.pair.cdr);
+      printf(")");
+      break;
   }
 }
 
 
-typedef int expr_t;
-
-
-expr_t read(FILE* in) {
+expr_t* read(FILE* in) {
   char buffer[128 + 1];
 
   (void) fgets(buffer, sizeof(buffer), in);
@@ -180,28 +253,28 @@ expr_t read(FILE* in) {
 
   tokens_t tokens = {0, NULL};
   tokenize(buffer, &tokens);
-  print_tokens(&tokens);
+
+  size_t  start = 0;
+  expr_t* expr  = parse(&tokens, &start);
   free_tokens(&tokens);
-
-  return 0;
+  print_expr(expr);
+  printf("\n");
+  return expr;
 }
 
 
-typedef int env_t;
-
-
-expr_t eval(expr_t expr, env_t env) {
-  return 0;
+expr_t* eval(expr_t* expr, env_t* env) {
+  return NULL;
 }
 
 
-void print(expr_t expr) {
+void print(expr_t* expr) {
 }
 
 
 int main(int argc, char* argv[]) {
-  env_t  env;
-  expr_t expr;
+  env_t*  env = NULL;
+  expr_t* expr;
 
   for (;;) {
     expr = read(stdin);
