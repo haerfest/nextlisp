@@ -6,6 +6,7 @@
 
 
 #include <ctype.h>
+#include <setjmp.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -30,8 +31,6 @@ typedef struct {
   size_t   count;
   token_t* tokens;
 } tokens_t;
-
-
 
 
 typedef enum {
@@ -59,6 +58,9 @@ typedef struct expr_t {
 
 
 typedef int env_t;
+
+
+jmp_buf jmp_env;
 
 
 char* skip_whitespace(char* s) {
@@ -142,7 +144,7 @@ void tokenize(char* s, tokens_t* tokens) {
         if (*s == '\0') {
           error("unterminated string");
           free_tokens(tokens);
-          return;
+          longjmp(jmp_env, 1);
         }
 
         s++;
@@ -284,7 +286,7 @@ expr_t* quote(expr_t* expr) {
 expr_t* parse(tokens_t* tokens, size_t* index) {
   if (*index == tokens->count) {
     perror("incomplete expression");
-    return NULL;
+    longjmp(jmp_env, 1);
   }
 
   switch (tokens->tokens[*index].type) {
@@ -300,7 +302,8 @@ expr_t* parse(tokens_t* tokens, size_t* index) {
 
     case TOKEN_TYPE_DOT:
       error("unexpected dot");
-      return NULL;
+      longjmp(jmp_env, 1);
+      break;
 
     case TOKEN_TYPE_LIST_BEGIN:
     {
@@ -324,13 +327,13 @@ expr_t* parse(tokens_t* tokens, size_t* index) {
       if (*index == tokens->count) {
         error("expected close bracket");
         free_expr(expr);
-        break;
+        longjmp(jmp_env, 1);
       }
 
       if (tokens->tokens[*index].type == TOKEN_TYPE_DOT) {
         if (!prev_expr) {
           error("unexpected dot");
-          return NULL;
+          longjmp(jmp_env, 1);
         }
 
         (*index)++;
@@ -342,7 +345,7 @@ expr_t* parse(tokens_t* tokens, size_t* index) {
     
     case TOKEN_TYPE_LIST_END:
       error("unexpected close bracket");
-      break;
+      longjmp(jmp_env, 1);
   }
 
   return NULL;
@@ -408,7 +411,24 @@ expr_t* read(FILE* in) {
 
 
 expr_t* eval(expr_t* expr, env_t* env) {
-  return NULL;
+  if (expr == NULL) {
+    return NULL;
+  }
+
+  switch (expr->type) {
+    case EXPR_TYPE_FIXED:
+    case EXPR_TYPE_FLOATING:
+    case EXPR_TYPE_STRING:
+      return expr;
+
+    case EXPR_TYPE_SYMBOL:
+      error("symbol not defined");
+      longjmp(jmp_env, 1);
+
+    case EXPR_TYPE_PAIR:
+      error("not implemented");
+      longjmp(jmp_env, 1);
+  }
 }
 
 
@@ -419,6 +439,8 @@ void print(expr_t* expr) {
 int main(int argc, char* argv[]) {
   env_t*  env = NULL;
   expr_t* expr;
+
+  (void) setjmp(jmp_env);
 
   for (;;) {
     expr = read(stdin);
