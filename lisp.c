@@ -158,6 +158,31 @@ void tokenize(char* s, tokens_t* tokens) {
 }
 
 
+void print_tokens(tokens_t* tokens) {
+  size_t i;
+
+  for (i = 0; i < tokens->count; i++) {
+    token_t* token = &tokens->tokens[i];
+
+    switch (token->type) {
+      case TOKEN_TYPE_LIST_BEGIN:
+        printf("LIST( ");
+        break;
+
+      case TOKEN_TYPE_LIST_END:
+        printf(")LIST ");
+        break;
+
+      case TOKEN_TYPE_ATOM:
+        printf("ATOM(%s) ", token->value);
+        break;
+    }
+  }
+
+  printf("\n");
+}
+
+
 void free_expr(expr_t* expr) {
   if (expr == NULL) {
     return;
@@ -227,8 +252,6 @@ expr_t* parse(tokens_t* tokens, size_t* index) {
     return NULL;
   }
 
-  expr_t* expr;
-
   switch (tokens->tokens[*index].type) {
     case TOKEN_TYPE_ATOM:
       return make_atom(tokens->tokens[*index].value);
@@ -236,6 +259,7 @@ expr_t* parse(tokens_t* tokens, size_t* index) {
     case TOKEN_TYPE_LIST_BEGIN:
     {
       expr_t* prev_expr = NULL;
+      expr_t* expr      = NULL;
 
       while (++(*index) < tokens->count && tokens->tokens[*index].type != TOKEN_TYPE_LIST_END) {
         expr_t* this_expr         = malloc(sizeof(expr_t));
@@ -306,6 +330,9 @@ void print_expr(expr_t* expr) {
 expr_t* read(FILE* in) {
   char buffer[128 + 1];
 
+  printf("> ");
+  fflush(stdout);
+
   (void) fgets(buffer, sizeof(buffer), in);
   if (feof(in)) {
     exit(0);
@@ -313,6 +340,7 @@ expr_t* read(FILE* in) {
 
   tokens_t tokens = {0, NULL};
   tokenize(buffer, &tokens);
+  print_tokens(&tokens);
 
   size_t  start = 0;
   expr_t* expr  = parse(&tokens, &start);
