@@ -5,6 +5,7 @@
  */
 
 
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -32,19 +33,25 @@ typedef struct {
 
 
 typedef enum {
-  EXPR_TYPE_ATOM,
-  EXPR_TYPE_PAIR
+  EXPR_TYPE_PAIR,
+  EXPR_TYPE_SYMBOL,
+  EXPR_TYPE_STRING,
+  EXPR_TYPE_FLOATING,
+  EXPR_TYPE_FIXED
 } expr_type_t;
 
 
 typedef struct expr_t {
   expr_type_t type;
   union {
-    char* atom;
     struct {
       struct expr_t* car;
       struct expr_t* cdr;
     } pair;
+    char*  symbol;
+    char*  string;
+    double floating;
+    int    fixed;
   } value;
 } expr_t;
 
@@ -157,17 +164,61 @@ void free_expr(expr_t* expr) {
   }
   
   switch (expr->type) {
-    case EXPR_TYPE_ATOM:
-      free(expr->value.atom);
-      break;
-
     case EXPR_TYPE_PAIR:
       free_expr(expr->value.pair.car);
       free_expr(expr->value.pair.cdr);
       break;
+
+    case EXPR_TYPE_SYMBOL:
+      free(expr->value.symbol);
+      break;
+
+    case EXPR_TYPE_STRING:
+      free(expr->value.string);
+      break;
+
+    case EXPR_TYPE_FLOATING:
+      break;
+
+    case EXPR_TYPE_FIXED:
+      break;
   }
 
   free(expr);
+}
+
+
+void upcase(char* s) {
+  size_t i;
+
+  for (i = 0; i < strlen(s); i++) {
+    s[i] = toupper(s[i]);
+  }
+}
+
+
+expr_t* make_atom(char* value) {
+  expr_t* expr = malloc(sizeof(expr_t));
+
+  if (*value == '"') {
+    expr->type         = EXPR_TYPE_STRING;
+    expr->value.string = strndup(value + 1, strlen(value) - 2);
+  } else if (*value >= '0' && *value <= '9') {
+    upcase(value);
+    if (strchr(value, '.') || strchr(value, 'E')) {
+      expr->type           = EXPR_TYPE_FLOATING;
+      expr->value.floating = strtod(value, NULL);
+    } else {
+      expr->type        = EXPR_TYPE_FIXED;
+      expr->value.fixed = strtol(value, NULL, 10);
+    }
+  } else {
+    expr->type         = EXPR_TYPE_SYMBOL;
+    expr->value.symbol = strdup(value);
+    upcase(expr->value.symbol);
+  }
+
+  return expr;
 }
 
 
@@ -180,10 +231,7 @@ expr_t* parse(tokens_t* tokens, size_t* index) {
 
   switch (tokens->tokens[*index].type) {
     case TOKEN_TYPE_ATOM:
-      expr             = malloc(sizeof(expr_t));
-      expr->type       = EXPR_TYPE_ATOM;
-      expr->value.atom = strdup(tokens->tokens[*index].value);
-      return expr;
+      return make_atom(tokens->tokens[*index].value);
 
     case TOKEN_TYPE_LIST_BEGIN:
     {
@@ -228,8 +276,20 @@ void print_expr(expr_t* expr) {
   }
 
   switch (expr->type) {
-    case EXPR_TYPE_ATOM:
-      printf("%s", expr->value.atom);
+    case EXPR_TYPE_FLOATING:
+      printf("%g", expr->value.floating);
+      break;
+
+    case EXPR_TYPE_FIXED:
+      printf("%d", expr->value.fixed);
+      break;
+
+    case EXPR_TYPE_STRING:
+      printf("\"%s\"", expr->value.string);
+      break;
+
+    case EXPR_TYPE_SYMBOL:
+      printf("%s", expr->value.symbol);
       break;
 
     case EXPR_TYPE_PAIR:
