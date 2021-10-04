@@ -58,13 +58,6 @@ typedef struct expr_t {
 } expr_t;
 
 
-typedef struct env_t {
-  char*         symbol;
-  expr_t*       expr;
-  struct env_t* next;
-} env_t;
-
-
 jmp_buf restart;
 
 
@@ -81,8 +74,8 @@ expr_t* QUOTE;
 expr_t* T;
 
 
-expr_t* eval(expr_t*, env_t*);
-expr_t* apply(expr_t*, expr_t*, env_t*);
+expr_t* eval(expr_t*, expr_t*);
+expr_t* apply(expr_t*, expr_t*, expr_t*);
 
 
 char* skip_whitespace(char* s) {
@@ -269,7 +262,7 @@ void upcase(char* s) {
 }
 
 
-expr_t* make_symbol(char* symbol) {
+expr_t* intern(char* symbol) {
   expr_t* expr = malloc(sizeof(expr_t));
 
   expr->type         = EXPR_TYPE_SYMBOL;
@@ -308,7 +301,7 @@ expr_t* make_atom(char* value) {
       expr->value.fixed = strtol(value, NULL, 10);
     }
   } else {
-    return make_symbol(value);
+    return intern(value);
   }
 
   return expr;
@@ -382,79 +375,6 @@ expr_t* parse(tokens_t* tokens, size_t* index) {
 }
 
 
-void print_expr(expr_t* expr) {
-  if (expr == NULL) {
-    printf("NIL");
-    return;
-  }
-
-  switch (expr->type) {
-    case EXPR_TYPE_FLOATING:
-      printf("%g", expr->value.floating);
-      break;
-
-    case EXPR_TYPE_FIXED:
-      printf("%d", expr->value.fixed);
-      break;
-
-    case EXPR_TYPE_STRING:
-      printf("\"%s\"", expr->value.string);
-      break;
-
-    case EXPR_TYPE_SYMBOL:
-      printf("%s", expr->value.symbol);
-      break;
-
-    case EXPR_TYPE_PAIR:
-      printf("(");
-      print_expr(expr->value.pair.car);
-      printf(" . ");
-      print_expr(expr->value.pair.cdr);
-      printf(")");
-      break;
-  }
-}
-
-
-expr_t* read(FILE* in) {
-  char buffer[128 + 1];
-
-  printf("> ");
-  fflush(stdout);
-
-  (void) fgets(buffer, sizeof(buffer), in);
-  if (feof(in)) {
-    exit(0);
-  }
-
-  tokens_t tokens = {0, NULL};
-  tokenize(buffer, &tokens);
-  print_tokens(&tokens);
-
-  size_t  start = 0;
-  expr_t* expr  = parse(&tokens, &start);
-  print_expr(expr);
-  printf("\n");
-  free_tokens(&tokens);
-
-  return expr;
-}
-
-
-int lookup(char* symbol, env_t* env, expr_t** expr) {
-  while (env) {
-    if (strcmp(env->symbol, symbol) == 0) {
-      *expr = env->expr;
-      return 1;
-    }
-
-    env = env->next;
-  }
-
-  return 0;
-}
-
-
 expr_t* car(expr_t* expr) {
   return expr->value.pair.car;
 }
@@ -475,6 +395,11 @@ expr_t* cadr(expr_t* expr) {
 }
 
 
+expr_t* caddr(expr_t* expr) {
+  return car(cdr(cdr(expr)));
+}
+
+
 expr_t* cadar(expr_t* expr) {
   return car(cdr(car(expr)));
 }
@@ -482,29 +407,6 @@ expr_t* cadar(expr_t* expr) {
 
 expr_t* cdar(expr_t* expr) {
   return cdr(car(expr));
-}
-
-
-expr_t* evcon(expr_t* c, env_t* env) {
-  while (c) {
-    expr_t* condition = eval(caar(c), env);
-    if (condition) {
-      return eval(cadar(c), env);
-    }
-
-    c = cdr(c);
-  }
-
-  return NULL;
-}
-
-
-expr_t* evlis(expr_t* m, env_t* env) {
-  if (m == NULL) {
-    return NULL;
-  }
-
-  return cons(eval(car(m), env), evlis(cdr(m), env));
 }
 
 
@@ -538,7 +440,99 @@ int eq(expr_t* a, expr_t* b) {
 }
 
 
-expr_t* apply(expr_t* fn, expr_t* x, env_t* env) {
+void print_helper(expr_t* expr, int do_print_brackets) {
+  if (expr == NULL) {
+    printf("NIL");
+    return;
+  }
+
+  switch (expr->type) {
+    case EXPR_TYPE_SYMBOL  : printf("%s", expr->value.symbol);   break;
+    case EXPR_TYPE_STRING  : printf("%s", expr->value.string);   break;
+    case EXPR_TYPE_FIXED   : printf("%d", expr->value.fixed);    break;
+    case EXPR_TYPE_FLOATING: printf("%f", expr->value.floating); break;
+
+    case EXPR_TYPE_PAIR:
+      if (do_print_brackets) {
+        printf("(");
+      }
+      print_helper(car(expr), 1);
+      if (!atom(cdr(expr))) {
+        printf(" ");
+        print_helper(cdr(expr), 0);
+      } else if (cdr(expr) != NULL) {
+        printf(" . ");
+        print_helper(cdr(expr), 1);
+      }
+      if (do_print_brackets) {
+        printf(")");
+      }
+      break;
+  }
+}
+
+
+void print(expr_t* expr) {
+  print_helper(expr, 1);
+}
+
+
+expr_t* read(FILE* in) {
+  char buffer[128 + 1];
+
+  printf("> ");
+  fflush(stdout);
+
+  (void) fgets(buffer, sizeof(buffer), in);
+  if (feof(in)) {
+    exit(0);
+  }
+
+  tokens_t tokens = {0, NULL};
+  tokenize(buffer, &tokens);
+  print_tokens(&tokens);
+
+  size_t  start = 0;
+  expr_t* expr  = parse(&tokens, &start);
+  print(expr);
+  printf("\n");
+  free_tokens(&tokens);
+
+  return expr;
+}
+
+
+expr_t* evcon(expr_t* c, expr_t* env) {
+  while (c) {
+    expr_t* condition = eval(caar(c), env);
+    if (condition) {
+      return eval(cadar(c), env);
+    }
+
+    c = cdr(c);
+  }
+
+  return NULL;
+}
+
+
+expr_t* evlis(expr_t* m, expr_t* env) {
+  if (m == NULL) {
+    return NULL;
+  }
+
+  return cons(eval(car(m), env), evlis(cdr(m), env));
+}
+
+
+expr_t* pairlis(expr_t* x, expr_t* y, expr_t* env) {
+  if (x == NULL) return env;
+
+  return cons(cons(car(x), car(y)), pairlis(cdr(x), cdr(y), env));
+}
+
+
+expr_t* apply(expr_t* fn, expr_t* x, expr_t* env) {
   switch (fn->type) {
     case EXPR_TYPE_FIXED:
       error("cannot apply %d", fn->value.fixed);
@@ -559,14 +553,44 @@ expr_t* apply(expr_t* fn, expr_t* x, env_t* env) {
       return apply(eval(fn, env), x, env);
 
     case EXPR_TYPE_PAIR:
-      break;
+      if (eq(car(fn), LAMBDA)) return eval(caddr(fn), pairlis(cadr(fn), x, env));
+      if (eq(car(fn), LABEL )) return apply(caddr(fn), x, cons(cons(cadr(fn), caddr(fn)), env));
+
+      error("cannot apply");
   }
 
   return NULL;
 }
 
 
-expr_t* eval(expr_t* expr, env_t* env) {
+int equal(expr_t* x, expr_t* y) {
+  for (; x && y; x = cdr(x), y = cdr(y)) {
+    if (atom(x)) {
+      return atom(y) ? eq(x, y) : 0;
+    }
+
+    if (!equal(car(x), car(y))) {
+      return 0;
+    }
+  }
+
+  return 0;
+}
+
+
+expr_t* assoc(expr_t* x, expr_t* env) {
+  for (; env; env = cdr(env)) {
+    if (equal(caar(env), x)) {
+      return car(env);
+    }
+  }
+
+  error("%s undefined", x->value.symbol);
+  return 0;
+}
+
+
+expr_t* eval(expr_t* expr, expr_t* env) {
   if (expr == NULL) {
     return NULL;
   }
@@ -578,13 +602,7 @@ expr_t* eval(expr_t* expr, env_t* env) {
       return expr;
 
     case EXPR_TYPE_SYMBOL:
-    {
-      expr_t* value;
-      if (!lookup(expr->value.symbol, env, &value)) {
-        error("%s undefined", expr->value.symbol);
-      }
-      return value;
-    }
+      return cdr(assoc(expr, env));
 
     case EXPR_TYPE_PAIR:
       if (eq(car(expr), QUOTE)) return cadr(expr);
@@ -597,80 +615,35 @@ expr_t* eval(expr_t* expr, env_t* env) {
 }
 
 
-void print(expr_t* expr) {
-  if (expr == NULL) {
-    printf("NIL");
-    return;
-  }
+expr_t* make_initial_env(void) {
+  expr_t* env = NULL;
 
-  switch (expr->type) {
-    case EXPR_TYPE_SYMBOL:
-      printf("%s", expr->value.symbol);
-      break;
-
-    case EXPR_TYPE_STRING:
-      printf("%s", expr->value.string);
-      break;
-
-    case EXPR_TYPE_FIXED:
-      printf("%d", expr->value.fixed);
-      break;
-
-    case EXPR_TYPE_FLOATING:
-      printf("%f", expr->value.floating);
-      break;
-
-    case EXPR_TYPE_PAIR:
-      printf("(");
-      print(expr->value.pair.car);
-      printf(" ");
-      print(expr->value.pair.cdr);
-      printf(")");
-      break;
-  }
-}
-
-
-env_t* associate(char* symbol, expr_t* expr, env_t* env) {
-  env_t* node = malloc(sizeof(env_t));
-
-  node->symbol = symbol;
-  node->expr   = expr;
-  node->next   = env;
-
-  return node;
-}
-
-
-env_t* make_initial_env(void) {
-  env_t* env = NULL;
-
-  env = associate("NIL", NIL, env);
-  env = associate("T",   T,   env);
+  env = cons(cons(NIL, NIL), env);
+  env = cons(cons(T,   T  ), env);
   
   return env;
 }
 
 
 void init(void) {
-  ATOM   = make_symbol("ATOM");
-  CAR    = make_symbol("CAR");
-  CDR    = make_symbol("CDR");
-  COND   = make_symbol("COND");
-  CONS   = make_symbol("CONS");
-  EQ     = make_symbol("EQ");
-  LABEL  = make_symbol("LABEL");
-  LAMBDA = make_symbol("LAMBDA");
+  ATOM   = intern("ATOM");
+  CAR    = intern("CAR");
+  CDR    = intern("CDR");
+  COND   = intern("COND");
+  CONS   = intern("CONS");
+  EQ     = intern("EQ");
+  LABEL  = intern("LABEL");
+  LAMBDA = intern("LAMBDA");
   NIL    = NULL;
-  QUOTE  = make_symbol("QUOTE");
-  T      = make_symbol("T");
+  QUOTE  = intern("QUOTE");
+  T      = intern("T");
 }
 
 
 int main(int argc, char* argv[]) {
   init();
 
-  env_t*  env = make_initial_env();
+  expr_t* env = make_initial_env();
   expr_t* expr;
 
   (void) setjmp(restart);
