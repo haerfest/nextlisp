@@ -68,7 +68,11 @@ typedef struct env_t {
 jmp_buf restart;
 
 
+expr_t* T;
+
+
 expr_t* eval(expr_t*, env_t*);
+expr_t* apply(expr_t*, expr_t*, env_t*);
 
 
 char* skip_whitespace(char* s) {
@@ -470,6 +474,11 @@ expr_t* cadar(expr_t* expr) {
 }
 
 
+expr_t* cdar(expr_t* expr) {
+  return cdr(car(expr));
+}
+
+
 expr_t* evcon(expr_t* c, env_t* env) {
   while (c) {
     expr_t* condition = eval(caar(c), env);
@@ -478,6 +487,95 @@ expr_t* evcon(expr_t* c, env_t* env) {
     }
 
     c = cdr(c);
+  }
+
+  return NULL;
+}
+
+
+expr_t* cons(expr_t* car, expr_t* cdr) {
+  return make_pair(car, cdr);
+}
+
+
+expr_t* evlis(expr_t* m, env_t* env) {
+  if (m == NULL) {
+    return NULL;
+  }
+
+  return cons(eval(car(m), env), evlis(cdr(m), env));
+}
+
+
+expr_t* is_atom(expr_t* expr) {
+  if (expr == NULL) {
+    return T;
+  }
+
+  if (expr->type == EXPR_TYPE_PAIR) {
+    return NULL;
+  }
+
+  return T;
+}
+
+
+expr_t* is_eq(expr_t* a, expr_t* b) {
+  if (a == NULL && b == NULL) {
+    return T;
+  }
+
+  if (a == NULL || b == NULL) {
+    return NULL;
+  }
+
+  if (a->type != b->type) {
+    return NULL;
+  }
+
+  if (a->type == EXPR_TYPE_SYMBOL) {
+    return (strcmp(a->value.symbol, b->value.symbol) == 0) ? T : NULL;
+  }
+
+  if (a->type == EXPR_TYPE_FIXED) {
+    return (a->value.fixed ==  b->value.fixed) ? T : NULL;
+  }
+
+  return NULL;
+}
+
+
+expr_t* apply(expr_t* fn, expr_t* x, env_t* env) {
+  switch (fn->type) {
+    case EXPR_TYPE_FIXED:
+      error("cannot apply %d", fn->value.fixed);
+
+    case EXPR_TYPE_FLOATING:
+      error("cannot apply %g", fn->value.floating);
+
+    case EXPR_TYPE_STRING:
+      error("cannot apply \"%s\"", fn->value.string);
+
+    case EXPR_TYPE_SYMBOL:
+      if (strcmp(fn->value.symbol, "CAR") == 0) {
+        return caar(x);
+      }
+      if (strcmp(fn->value.symbol, "CDR") == 0) {
+        return cdar(x);
+      }
+      if (strcmp(fn->value.symbol, "CONS") == 0) {
+        return cons(car(x), cadr(x));
+      }
+      if (strcmp(fn->value.symbol, "ATOM") == 0) {
+        return is_atom(car(x));
+      }
+      if (strcmp(fn->value.symbol, "EQ") == 0) {
+        return is_eq(car(x), cadr(x));
+      }
+      return apply(eval(fn, env), x, env);
+
+    case EXPR_TYPE_PAIR:
+      break;
   }
 
   return NULL;
@@ -499,7 +597,7 @@ expr_t* eval(expr_t* expr, env_t* env) {
     {
       expr_t* value;
       if (!lookup(expr->value.symbol, env, &value)) {
-        error("symbol %s undefined", expr->value.symbol);
+        error("%s undefined", expr->value.symbol);
       }
       return value;
     }
@@ -513,9 +611,8 @@ expr_t* eval(expr_t* expr, env_t* env) {
         if (strcmp(car(expr)->value.symbol, "COND") == 0) {
           return evcon(cdr(expr), env);
         }
-        error("procedure %s undefined", car(expr)->value.symbol);
       }
-      error("not a procedure");
+      return apply(car(expr), evlis(cdr(expr), env), env);
     }
   }
 
@@ -571,8 +668,10 @@ env_t* associate(char* symbol, expr_t* expr, env_t* env) {
 env_t* make_initial_env(void) {
   env_t* env = NULL;
 
+  T = make_symbol("T");
+
   env = associate("NIL", NULL, env);
-  env = associate("T", make_symbol("T"), env);
+  env = associate("T", T, env);
   
   return env;
 }
