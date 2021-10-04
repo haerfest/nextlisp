@@ -281,7 +281,7 @@ expr_t* make_symbol(char* symbol) {
 }
 
 
-expr_t* make_pair(expr_t* car, expr_t* cdr) {
+expr_t* cons(expr_t* car, expr_t* cdr) {
   expr_t* expr = malloc(sizeof(expr_t));
 
   expr->type           = EXPR_TYPE_PAIR;
@@ -316,10 +316,7 @@ expr_t* make_atom(char* value) {
 
 
 expr_t* quote(expr_t* expr) {
-  expr_t* quote = make_symbol("QUOTE");
-  expr_t* node  = make_pair(expr, NULL);
-
-  return make_pair(quote, node);
+  return cons(QUOTE, cons(expr, NIL));
 }
 
 
@@ -335,8 +332,7 @@ expr_t* parse(tokens_t* tokens, size_t* index) {
     case TOKEN_TYPE_QUOTE:
     {
       (*index)++;
-      expr_t* expr = parse(tokens, index);
-      return quote(expr);
+      return cons(QUOTE, cons(parse(tokens, index), NIL));
     }
 
     case TOKEN_TYPE_DOT:
@@ -350,7 +346,7 @@ expr_t* parse(tokens_t* tokens, size_t* index) {
 
       while (++(*index) < tokens->count && tokens->tokens[*index].type != TOKEN_TYPE_DOT && tokens->tokens[*index].type != TOKEN_TYPE_LIST_END) {
         expr_t* sub_expr  = parse(tokens, index);
-        expr_t* this_expr = make_pair(sub_expr, NULL);
+        expr_t* this_expr = cons(sub_expr, NULL);
 
         if (prev_expr) {
           prev_expr->value.pair.cdr = this_expr;
@@ -500,11 +496,6 @@ expr_t* evcon(expr_t* c, env_t* env) {
   }
 
   return NULL;
-}
-
-
-expr_t* cons(expr_t* car, expr_t* cdr) {
-  return make_pair(car, cdr);
 }
 
 
