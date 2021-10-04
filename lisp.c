@@ -58,7 +58,11 @@ typedef struct expr_t {
 } expr_t;
 
 
-typedef int env_t;
+typedef struct env_t {
+  char*         symbol;
+  expr_t*       expr;
+  struct env_t* next;
+} env_t;
 
 
 jmp_buf restart;
@@ -248,6 +252,29 @@ void upcase(char* s) {
 }
 
 
+expr_t* make_symbol(char* symbol) {
+  expr_t* expr = malloc(sizeof(expr_t));
+
+  expr->type         = EXPR_TYPE_SYMBOL;
+  expr->value.symbol = strdup(symbol);
+
+  upcase(expr->value.symbol);
+
+  return expr;
+}
+
+
+expr_t* make_pair(expr_t* car, expr_t* cdr) {
+  expr_t* expr = malloc(sizeof(expr_t));
+
+  expr->type           = EXPR_TYPE_PAIR;
+  expr->value.pair.car = car;
+  expr->value.pair.cdr = cdr;
+
+  return expr;
+}
+
+
 expr_t* make_atom(char* value) {
   expr_t* expr = malloc(sizeof(expr_t));
 
@@ -264,9 +291,7 @@ expr_t* make_atom(char* value) {
       expr->value.fixed = strtol(value, NULL, 10);
     }
   } else {
-    expr->type         = EXPR_TYPE_SYMBOL;
-    expr->value.symbol = strdup(value);
-    upcase(expr->value.symbol);
+    return make_symbol(value);
   }
 
   return expr;
@@ -274,16 +299,10 @@ expr_t* make_atom(char* value) {
 
 
 expr_t* quote(expr_t* expr) {
-  expr_t* quote       = malloc(sizeof(expr_t));
-  quote->type         = EXPR_TYPE_SYMBOL;
-  quote->value.symbol = "QUOTE";
-  
-  expr_t* pair = malloc(sizeof(expr_t));
-  pair->type           = EXPR_TYPE_PAIR;
-  pair->value.pair.car = quote;
-  pair->value.pair.cdr = expr;
+  expr_t* quote = make_symbol("QUOTE");
+  expr_t* node  = make_pair(expr, NULL);
 
-  return pair;
+  return make_pair(quote, node);
 }
 
 
@@ -313,10 +332,8 @@ expr_t* parse(tokens_t* tokens, size_t* index) {
       expr_t* expr      = NULL;
 
       while (++(*index) < tokens->count && tokens->tokens[*index].type != TOKEN_TYPE_DOT && tokens->tokens[*index].type != TOKEN_TYPE_LIST_END) {
-        expr_t* this_expr         = malloc(sizeof(expr_t));
-        this_expr->type           = EXPR_TYPE_PAIR;
-        this_expr->value.pair.car = parse(tokens, index);
-        this_expr->value.pair.cdr = NULL;
+        expr_t* sub_expr  = parse(tokens, index);
+        expr_t* this_expr = make_pair(sub_expr, NULL);
 
         if (prev_expr) {
           prev_expr->value.pair.cdr = this_expr;
@@ -399,16 +416,48 @@ expr_t* read(FILE* in) {
 
   tokens_t tokens = {0, NULL};
   tokenize(buffer, &tokens);
+  print_tokens(&tokens);
 
   size_t  start = 0;
   expr_t* expr  = parse(&tokens, &start);
+  print_expr(expr);
+  printf("\n");
   free_tokens(&tokens);
 
   return expr;
 }
 
 
-expr_t* eval(expr_t* expr, env_t* env) {
+int lookup(char* symbol, env_t* env, expr_t** expr) {
+  while (env) {
+    if (strcmp(env->symbol, symbol) == 0) {
+      *expr = env->expr;
+      return 1;
+    }
+
+    env = env->next;
+  }
+
+  return 0;
+}
+
+
+expr_t* car(expr_t* expr) {
+  return expr->value.pair.car;
+}
+
+
+expr_t* cdr(expr_t* expr) {
+  return expr->value.pair.cdr;
+}
+
+
+expr_t* cadr(expr_t* expr) {
+  return car(cdr(expr));
+}
+
+
+expr_t* eval(expr_t* expr, env_t** env) {
   if (expr == NULL) {
     return NULL;
   }
@@ -420,16 +469,24 @@ expr_t* eval(expr_t* expr, env_t* env) {
       return expr;
 
     case EXPR_TYPE_SYMBOL:
-      error("%s undefined", expr->value.symbol);
-      break;
+    {
+      expr_t* value;
+      if (!lookup(expr->value.symbol, *env, &value)) {
+        error("%s undefined", expr->value.symbol);
+      }
+      return value;
+    }
 
     case EXPR_TYPE_PAIR:
     {
-      expr_t* procedure = eval(expr->value.pair.car, env);
-      if (procedure->type != EXPR_TYPE_SYMBOL) {
-        error("not a procedure");
+      expr_t* car = expr->value.pair.car;
+      if (car->type == EXPR_TYPE_SYMBOL) {
+        if (strcmp(car->value.symbol, "QUOTE") == 0) {
+          return cadr(expr);
+        }
+        error("%s undefined", car->value.symbol);
       }
-      break;
+      error("not a procedure");
     }
   }
 
@@ -479,7 +536,7 @@ int main(int argc, char* argv[]) {
 
   for (;;) {
     expr = read(stdin);
-    expr = eval(expr, env);
+    expr = eval(expr, &env);
     print(expr);
     printf("\n");
   }
