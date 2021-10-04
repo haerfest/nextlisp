@@ -68,6 +68,16 @@ typedef struct env_t {
 jmp_buf restart;
 
 
+expr_t* ATOM;
+expr_t* CAR;
+expr_t* CDR;
+expr_t* COND;
+expr_t* CONS;
+expr_t* EQ;
+expr_t* LABEL;
+expr_t* LAMBDA;
+expr_t* NIL;
+expr_t* QUOTE;
 expr_t* T;
 
 
@@ -507,41 +517,33 @@ expr_t* evlis(expr_t* m, env_t* env) {
 }
 
 
-expr_t* is_atom(expr_t* expr) {
-  if (expr == NULL) {
-    return T;
-  }
-
-  if (expr->type == EXPR_TYPE_PAIR) {
-    return NULL;
-  }
-
-  return T;
+int atom(expr_t* expr) {
+  return expr == NULL || (expr->type != EXPR_TYPE_PAIR);
 }
 
 
-expr_t* is_eq(expr_t* a, expr_t* b) {
+int eq(expr_t* a, expr_t* b) {
   if (a == NULL && b == NULL) {
-    return T;
+    return 1;
   }
 
   if (a == NULL || b == NULL) {
-    return NULL;
+    return 0;
   }
 
   if (a->type != b->type) {
-    return NULL;
+    return 0;
   }
 
   if (a->type == EXPR_TYPE_SYMBOL) {
-    return (strcmp(a->value.symbol, b->value.symbol) == 0) ? T : NULL;
+    return (strcmp(a->value.symbol, b->value.symbol) == 0);
   }
 
   if (a->type == EXPR_TYPE_FIXED) {
-    return (a->value.fixed ==  b->value.fixed) ? T : NULL;
+    return (a->value.fixed ==  b->value.fixed);
   }
 
-  return NULL;
+  return 0;
 }
 
 
@@ -557,21 +559,12 @@ expr_t* apply(expr_t* fn, expr_t* x, env_t* env) {
       error("cannot apply \"%s\"", fn->value.string);
 
     case EXPR_TYPE_SYMBOL:
-      if (strcmp(fn->value.symbol, "CAR") == 0) {
-        return caar(x);
-      }
-      if (strcmp(fn->value.symbol, "CDR") == 0) {
-        return cdar(x);
-      }
-      if (strcmp(fn->value.symbol, "CONS") == 0) {
-        return cons(car(x), cadr(x));
-      }
-      if (strcmp(fn->value.symbol, "ATOM") == 0) {
-        return is_atom(car(x));
-      }
-      if (strcmp(fn->value.symbol, "EQ") == 0) {
-        return is_eq(car(x), cadr(x));
-      }
+      if (eq(fn, CAR )) return caar(x);
+      if (eq(fn, CDR )) return cdar(x);
+      if (eq(fn, CONS)) return cons(car(x), cadr(x));
+      if (eq(fn, ATOM)) return atom(car(x))        ? T : NIL;
+      if (eq(fn, EQ  )) return eq(car(x), cadr(x)) ? T : NIL;
+
       return apply(eval(fn, env), x, env);
 
     case EXPR_TYPE_PAIR:
@@ -603,17 +596,10 @@ expr_t* eval(expr_t* expr, env_t* env) {
     }
 
     case EXPR_TYPE_PAIR:
-    {
-      if (car(expr)->type == EXPR_TYPE_SYMBOL) {
-        if (strcmp(car(expr)->value.symbol, "QUOTE") == 0) {
-          return cadr(expr);
-        }
-        if (strcmp(car(expr)->value.symbol, "COND") == 0) {
-          return evcon(cdr(expr), env);
-        }
-      }
+      if (eq(car(expr), QUOTE)) return cadr(expr);
+      if (eq(car(expr), COND )) return evcon(cdr(expr), env);
+
       return apply(car(expr), evlis(cdr(expr), env), env);
-    }
   }
 
   return NULL;
@@ -668,16 +654,31 @@ env_t* associate(char* symbol, expr_t* expr, env_t* env) {
 env_t* make_initial_env(void) {
   env_t* env = NULL;
 
-  T = make_symbol("T");
-
-  env = associate("NIL", NULL, env);
-  env = associate("T", T, env);
+  env = associate("NIL", NIL, env);
+  env = associate("T",   T,   env);
   
   return env;
 }
 
 
+void init(void) {
+  ATOM   = make_symbol("ATOM");
+  CAR    = make_symbol("CAR");
+  CDR    = make_symbol("CDR");
+  COND   = make_symbol("COND");
+  CONS   = make_symbol("CONS");
+  EQ     = make_symbol("EQ");
+  LABEL  = make_symbol("LABEL");
+  LAMBDA = make_symbol("LAMBDA");
+  NIL    = NULL;
+  QUOTE  = make_symbol("QUOTE");
+  T      = make_symbol("T");
+}
+
+
 int main(int argc, char* argv[]) {
+  init();
+
   env_t*  env = make_initial_env();
   expr_t* expr;
 
