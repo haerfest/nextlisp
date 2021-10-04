@@ -68,6 +68,9 @@ typedef struct env_t {
 jmp_buf restart;
 
 
+expr_t* eval(expr_t*, env_t*);
+
+
 char* skip_whitespace(char* s) {
   while (*s == ' ' || *s == '\t' || *s == '\n') {
     s++;
@@ -452,12 +455,36 @@ expr_t* cdr(expr_t* expr) {
 }
 
 
+expr_t* caar(expr_t* expr) {
+  return car(car(expr));
+}
+
+
 expr_t* cadr(expr_t* expr) {
   return car(cdr(expr));
 }
 
 
-expr_t* eval(expr_t* expr, env_t** env) {
+expr_t* cadar(expr_t* expr) {
+  return car(cdr(car(expr)));
+}
+
+
+expr_t* evcon(expr_t* c, env_t* env) {
+  while (c) {
+    expr_t* condition = eval(caar(c), env);
+    if (condition) {
+      return eval(cadar(c), env);
+    }
+
+    c = cdr(c);
+  }
+
+  return NULL;
+}
+
+
+expr_t* eval(expr_t* expr, env_t* env) {
   if (expr == NULL) {
     return NULL;
   }
@@ -471,20 +498,22 @@ expr_t* eval(expr_t* expr, env_t** env) {
     case EXPR_TYPE_SYMBOL:
     {
       expr_t* value;
-      if (!lookup(expr->value.symbol, *env, &value)) {
-        error("%s undefined", expr->value.symbol);
+      if (!lookup(expr->value.symbol, env, &value)) {
+        error("symbol %s undefined", expr->value.symbol);
       }
       return value;
     }
 
     case EXPR_TYPE_PAIR:
     {
-      expr_t* car = expr->value.pair.car;
-      if (car->type == EXPR_TYPE_SYMBOL) {
-        if (strcmp(car->value.symbol, "QUOTE") == 0) {
+      if (car(expr)->type == EXPR_TYPE_SYMBOL) {
+        if (strcmp(car(expr)->value.symbol, "QUOTE") == 0) {
           return cadr(expr);
         }
-        error("%s undefined", car->value.symbol);
+        if (strcmp(car(expr)->value.symbol, "COND") == 0) {
+          return evcon(cdr(expr), env);
+        }
+        error("procedure %s undefined", car(expr)->value.symbol);
       }
       error("not a procedure");
     }
@@ -528,15 +557,36 @@ void print(expr_t* expr) {
 }
 
 
+env_t* associate(char* symbol, expr_t* expr, env_t* env) {
+  env_t* node = malloc(sizeof(env_t));
+
+  node->symbol = symbol;
+  node->expr   = expr;
+  node->next   = env;
+
+  return node;
+}
+
+
+env_t* make_initial_env(void) {
+  env_t* env = NULL;
+
+  env = associate("NIL", NULL, env);
+  env = associate("T", make_symbol("T"), env);
+  
+  return env;
+}
+
+
 int main(int argc, char* argv[]) {
-  env_t*  env = NULL;
+  env_t*  env = make_initial_env();
   expr_t* expr;
 
   (void) setjmp(restart);
 
   for (;;) {
     expr = read(stdin);
-    expr = eval(expr, &env);
+    expr = eval(expr, env);
     print(expr);
     printf("\n");
   }
