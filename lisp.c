@@ -46,14 +46,17 @@ typedef enum {
 typedef struct expr_t {
   expr_type_t type;
   union {
+    char*  symbol;
+    char*  string;
+    int    number;
     struct {
       struct expr_t* car;
       struct expr_t* cdr;
     } pair;
-    char*  symbol;
-    char*  string;
-    int    number;
-    struct expr_t* (*proc)(struct expr_t*);
+    struct {
+      char* name;
+      struct expr_t* (*fn)(struct expr_t*);
+    } proc;
   } value;
 } expr_t;
 
@@ -257,11 +260,12 @@ expr_t* cons(expr_t* car, expr_t* cdr) {
 }
 
 
-expr_t* make_proc(proc_t* proc) {
+expr_t* make_proc(char* name, proc_t* proc) {
   expr_t* expr = malloc(sizeof(expr_t));
 
-  expr->type       = EXPR_TYPE_PROC;
-  expr->value.proc = proc;
+  expr->type            = EXPR_TYPE_PROC;
+  expr->value.proc.name = name;
+  expr->value.proc.fn   = proc;
 
   return expr;
 }
@@ -388,10 +392,10 @@ void print_helper(expr_t* expr, int do_print_brackets) {
   }
 
   switch (expr->type) {
-    case EXPR_TYPE_SYMBOL: printf("%s", expr->value.symbol); break;
-    case EXPR_TYPE_STRING: printf("%s", expr->value.string); break;
-    case EXPR_TYPE_NUMBER: printf("%d", expr->value.number); break;
-    case EXPR_TYPE_PROC  : printf("<PROC>");                 break;
+    case EXPR_TYPE_SYMBOL: printf("%s", expr->value.symbol);           break;
+    case EXPR_TYPE_STRING: printf("%s", expr->value.string);           break;
+    case EXPR_TYPE_NUMBER: printf("%d", expr->value.number);           break;
+    case EXPR_TYPE_PROC  : printf("#<PROC %s>", expr->value.proc.name); break;
 
     case EXPR_TYPE_PAIR:
       if (do_print_brackets) {
@@ -491,7 +495,7 @@ expr_t* apply(expr_t* fn, expr_t* args, expr_t* env) {
       error();
 
     case EXPR_TYPE_PROC:
-      return fn->value.proc(args);
+      return fn->value.proc.fn(args);
 
     default:
       error();
@@ -582,7 +586,8 @@ expr_t* proc_add(expr_t* args) {
 
 
 expr_t* proc_subtract(expr_t* args) {
-  int sum = 0;
+  int sum = car(args)->value.number;
+  args = cdr(args);
 
   while (args) {
     sum -= car(args)->value.number;
@@ -624,13 +629,13 @@ expr_t* make_initial_env(void) {
   env = cons(cons(NIL, NULL), env);
   env = cons(cons(T,   T   ), env);
 
-  env = cons(cons(intern("+"   ), make_proc(proc_add     )), env);
-  env = cons(cons(intern("-"   ), make_proc(proc_subtract)), env);
-  env = cons(cons(intern("CAR" ), make_proc(proc_car     )), env);
-  env = cons(cons(intern("CDR" ), make_proc(proc_cdr     )), env);
-  env = cons(cons(intern("CONS"), make_proc(proc_cons    )), env);
-  env = cons(cons(intern("ATOM"), make_proc(proc_atom    )), env);
-  env = cons(cons(intern("EQ"  ), make_proc(proc_eq      )), env);
+  env = cons(cons(intern("+"   ), make_proc("+",    proc_add     )), env);
+  env = cons(cons(intern("-"   ), make_proc("-",    proc_subtract)), env);
+  env = cons(cons(intern("CAR" ), make_proc("CAR",  proc_car     )), env);
+  env = cons(cons(intern("CDR" ), make_proc("CDR",  proc_cdr     )), env);
+  env = cons(cons(intern("CONS"), make_proc("CONS", proc_cons    )), env);
+  env = cons(cons(intern("ATOM"), make_proc("ATOM", proc_atom    )), env);
+  env = cons(cons(intern("EQ"  ), make_proc("EQ",   proc_eq      )), env);
 
   return env;
 }
