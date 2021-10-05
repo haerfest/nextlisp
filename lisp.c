@@ -39,7 +39,7 @@ typedef enum {
   EXPR_TYPE_SYMBOL,
   EXPR_TYPE_STRING,
   EXPR_TYPE_NUMBER,
-  EXPR_TYPE_PRIMITIVE
+  EXPR_TYPE_PROC
 } expr_type_t;
 
 
@@ -53,32 +53,47 @@ typedef struct expr_t {
     char*  symbol;
     char*  string;
     int    number;
-    struct expr_t* (*primitive)(struct expr_t*);
+    struct expr_t* (*proc)(struct expr_t*);
   } value;
 } expr_t;
 
 
-typedef expr_t* (primitive_t)(expr_t*);
+typedef expr_t* (proc_t)(expr_t*);
+
+
+#define caar(expr)  car(car(expr))
+#define cadr(expr)  car(cdr(expr))
+#define caddr(expr) car(cdr(cdr(expr)))
+#define cadar(expr) car(cdr(car(expr)))
+#define cdar(expr)  cdr(car(expr))
+
+
+#define MAKE_SYMBOL(name) \
+  expr_t  SYMBOL_ ## name = { .type = EXPR_TYPE_SYMBOL, .value.symbol = #name }; \
+  expr_t* name = &SYMBOL_ ## name;
+
+MAKE_SYMBOL(COND);
+MAKE_SYMBOL(LABEL);
+MAKE_SYMBOL(LAMBDA);
+MAKE_SYMBOL(NIL);
+MAKE_SYMBOL(QUOTE);
+MAKE_SYMBOL(T);
 
 
 jmp_buf restart;
 
 
-expr_t* ATOM;
-expr_t* CAR;
-expr_t* CDR;
-expr_t* COND;
-expr_t* CONS;
-expr_t* EQ;
-expr_t* LABEL;
-expr_t* LAMBDA;
-expr_t* NIL;
-expr_t* QUOTE;
-expr_t* T;
-
-
 expr_t* eval(expr_t*, expr_t*);
 expr_t* apply(expr_t*, expr_t*, expr_t*);
+void    print(expr_t*);
+
+
+void error(void) {
+  fprintf(stderr, "error\n");
+  fflush(stderr);
+
+  longjmp(restart, 1);
+}
 
 
 char* skip_whitespace(char* s) {
@@ -87,21 +102,6 @@ char* skip_whitespace(char* s) {
   }
 
   return s;
-}
-
-
-void error(char* fmt, ...) {
-  va_list arg;
-
-  fprintf(stderr, "error: ");
-
-  va_start(arg, fmt);
-  vfprintf(stderr, fmt, arg);
-  va_end(arg);
-
-  fprintf(stderr, "\n");
-
-  longjmp(restart, 1);
 }
 
 
@@ -128,25 +128,10 @@ void tokenize(char* s, tokens_t* tokens) {
     }
 
     switch (*s) {
-      case '(':
-        add_token(tokens, TOKEN_TYPE_LIST_BEGIN, NULL);
-        s++;
-        break;
-
-      case ')':
-        add_token(tokens, TOKEN_TYPE_LIST_END, NULL);
-        s++;
-        break;
-
-      case '\'':
-        add_token(tokens, TOKEN_TYPE_QUOTE, NULL);
-        s++;
-        break;
-
-      case '.':
-        add_token(tokens, TOKEN_TYPE_DOT, NULL);
-        s++;
-        break;
+      case '(' : add_token(tokens, TOKEN_TYPE_LIST_BEGIN, NULL); s++; break;
+      case ')' : add_token(tokens, TOKEN_TYPE_LIST_END,   NULL); s++; break;
+      case '\'': add_token(tokens, TOKEN_TYPE_QUOTE,      NULL); s++; break;
+      case '.' : add_token(tokens, TOKEN_TYPE_DOT,        NULL); s++; break;
         
       case '"':
       {
@@ -165,7 +150,7 @@ void tokenize(char* s, tokens_t* tokens) {
 
         if (*s == '\0') {
           free_tokens(tokens);
-          error("unterminated string");
+          error();
         }
 
         s++;
@@ -200,25 +185,11 @@ void print_tokens(tokens_t* tokens) {
     token_t* token = &tokens->tokens[i];
 
     switch (token->type) {
-      case TOKEN_TYPE_LIST_BEGIN:
-        printf("[(] ");
-        break;
-
-      case TOKEN_TYPE_LIST_END:
-        printf("[)] ");
-        break;
-
-      case TOKEN_TYPE_QUOTE:
-        printf("['] ");
-        break;
-
-      case TOKEN_TYPE_DOT:
-        printf("[.] ");
-        break;
-
-      case TOKEN_TYPE_ATOM:
-        printf("[%s] ", token->value);
-        break;
+      case TOKEN_TYPE_LIST_BEGIN: printf("[(] ");                break;
+      case TOKEN_TYPE_LIST_END  : printf("[)] ");                break;
+      case TOKEN_TYPE_QUOTE     : printf("['] ");                break;
+      case TOKEN_TYPE_DOT       : printf("[.] ");                break;
+      case TOKEN_TYPE_ATOM      : printf("[%s] ", token->value); break;
     }
   }
 
@@ -246,7 +217,7 @@ void free_expr(expr_t* expr) {
       break;
 
     case EXPR_TYPE_NUMBER:
-    case EXPR_TYPE_PRIMITIVE:
+    case EXPR_TYPE_PROC:
       break;
   }
 
@@ -286,11 +257,11 @@ expr_t* cons(expr_t* car, expr_t* cdr) {
 }
 
 
-expr_t* make_primitive(primitive_t* primitive) {
+expr_t* make_proc(proc_t* proc) {
   expr_t* expr = malloc(sizeof(expr_t));
 
-  expr->type            = EXPR_TYPE_PRIMITIVE;
-  expr->value.primitive = primitive;
+  expr->type       = EXPR_TYPE_PROC;
+  expr->value.proc = proc;
 
   return expr;
 }
@@ -304,7 +275,8 @@ expr_t* make_atom(char* value) {
     return expr;
   }
 
-  if (*value >= '0' && *value <= '9') {
+  if ((*value >= '0' && *value <= '9') ||
+      ((*value == '-' || *value == '+') && (*(value + 1) >= '0' && *(value + 1) <= '9'))) {
     expr_t* expr       = malloc(sizeof(expr_t));
     expr->type         = EXPR_TYPE_NUMBER;
     expr->value.number = strtol(value, NULL, 10);
@@ -315,14 +287,9 @@ expr_t* make_atom(char* value) {
 }
 
 
-expr_t* quote(expr_t* expr) {
-  return cons(QUOTE, cons(expr, NULL));
-}
-
-
 expr_t* parse(tokens_t* tokens, size_t* index) {
   if (*index == tokens->count) {
-    error("incomplete expression");
+    error();
   }
 
   switch (tokens->tokens[*index].type) {
@@ -330,14 +297,11 @@ expr_t* parse(tokens_t* tokens, size_t* index) {
       return make_atom(tokens->tokens[*index].value);
 
     case TOKEN_TYPE_QUOTE:
-    {
       (*index)++;
       return cons(QUOTE, cons(parse(tokens, index), NULL));
-    }
 
     case TOKEN_TYPE_DOT:
-      error("unexpected dot");
-      break;
+      error();
 
     case TOKEN_TYPE_LIST_BEGIN:
     {
@@ -358,12 +322,12 @@ expr_t* parse(tokens_t* tokens, size_t* index) {
 
       if (*index == tokens->count) {
         free_expr(expr);
-        error("expected close bracket");
+        error();
       }
 
       if (tokens->tokens[*index].type == TOKEN_TYPE_DOT) {
         if (!prev_expr) {
-          error("unexpected dot");
+          error();
         }
 
         (*index)++;
@@ -374,8 +338,7 @@ expr_t* parse(tokens_t* tokens, size_t* index) {
     }
     
     case TOKEN_TYPE_LIST_END:
-      error("unexpected close bracket");
-      break;
+      error();
   }
 
   return NULL;
@@ -392,43 +355,14 @@ expr_t* cdr(expr_t* expr) {
 }
 
 
-expr_t* caar(expr_t* expr) {
-  return car(car(expr));
-}
-
-
-expr_t* cadr(expr_t* expr) {
-  return car(cdr(expr));
-}
-
-
-expr_t* caddr(expr_t* expr) {
-  return car(cdr(cdr(expr)));
-}
-
-
-expr_t* cadar(expr_t* expr) {
-  return car(cdr(car(expr)));
-}
-
-
-expr_t* cdar(expr_t* expr) {
-  return cdr(car(expr));
-}
-
-
 int atom(expr_t* expr) {
   return expr == NULL || (expr->type != EXPR_TYPE_PAIR);
 }
 
 
 int eq(expr_t* a, expr_t* b) {
-  if (a == NULL && b == NULL) {
-    return 1;
-  }
-
   if (a == NULL || b == NULL) {
-    return 0;
+    return (a == NULL && b == NULL);
   }
 
   if (a->type != b->type) {
@@ -454,10 +388,10 @@ void print_helper(expr_t* expr, int do_print_brackets) {
   }
 
   switch (expr->type) {
-    case EXPR_TYPE_SYMBOL   : printf("%s", expr->value.symbol); break;
-    case EXPR_TYPE_STRING   : printf("%s", expr->value.string); break;
-    case EXPR_TYPE_NUMBER   : printf("%d", expr->value.number); break;
-    case EXPR_TYPE_PRIMITIVE: printf("<PRIMITIVE>");            break;
+    case EXPR_TYPE_SYMBOL: printf("%s", expr->value.symbol); break;
+    case EXPR_TYPE_STRING: printf("%s", expr->value.string); break;
+    case EXPR_TYPE_NUMBER: printf("%d", expr->value.number); break;
+    case EXPR_TYPE_PROC  : printf("<PROC>");                 break;
 
     case EXPR_TYPE_PAIR:
       if (do_print_brackets) {
@@ -498,12 +432,9 @@ expr_t* read(FILE* in) {
 
   tokens_t tokens = {0, NULL};
   tokenize(buffer, &tokens);
-  print_tokens(&tokens);
 
   size_t  start = 0;
   expr_t* expr  = parse(&tokens, &start);
-  print(expr);
-  printf("\n");
   free_tokens(&tokens);
 
   return expr;
@@ -540,28 +471,30 @@ expr_t* pairlis(expr_t* x, expr_t* y, expr_t* env) {
 }
 
 
-expr_t* apply(expr_t* fn, expr_t* x, expr_t* env) {
+expr_t* apply(expr_t* fn, expr_t* args, expr_t* env) {
+  printf("apply: fn=");
+  print(fn);
+  printf(", args=");
+  print(args);
+  printf(", env=");
+  print(env);
+  printf("\n");
+
   switch (fn->type) {
-    case EXPR_TYPE_NUMBER: error("cannot apply %d",     fn->value.number);
-    case EXPR_TYPE_STRING: error("cannot apply \"%s\"", fn->value.string);
-
     case EXPR_TYPE_SYMBOL:
-      if (eq(fn, CAR )) return caar(x);
-      if (eq(fn, CDR )) return cdar(x);
-      if (eq(fn, CONS)) return cons(car(x), cadr(x));
-      if (eq(fn, ATOM)) return atom(car(x))        ? T : NULL;
-      if (eq(fn, EQ  )) return eq(car(x), cadr(x)) ? T : NULL;
-
-      return apply(eval(fn, env), x, env);
+      return apply(eval(fn, env), args, env);
 
     case EXPR_TYPE_PAIR:
-      if (eq(car(fn), LAMBDA)) return eval(caddr(fn), pairlis(cadr(fn), x, env));
-      if (eq(car(fn), LABEL )) return apply(caddr(fn), x, cons(cons(cadr(fn), caddr(fn)), env));
+      if (eq(car(fn), LAMBDA)) return eval(caddr(fn), pairlis(cadr(fn), args, env));
+      if (eq(car(fn), LABEL )) return apply(caddr(fn), args, cons(cons(cadr(fn), caddr(fn)), env));
 
-      error("cannot apply");
+      error();
 
-    case EXPR_TYPE_PRIMITIVE:
-      return fn->value.primitive(x);
+    case EXPR_TYPE_PROC:
+      return fn->value.proc(args);
+
+    default:
+      error();
   }
 
   return NULL;
@@ -590,12 +523,18 @@ expr_t* assoc(expr_t* x, expr_t* env) {
     }
   }
 
-  error("%s undefined", x->value.symbol);
+  error();
   return 0;
 }
 
 
 expr_t* eval(expr_t* expr, expr_t* env) {
+  printf("eval: expr=");
+  print(expr);
+  printf(", env=");
+  print(env);
+  printf("\n");
+
   if (expr == NULL) {
     return NULL;
   }
@@ -603,7 +542,7 @@ expr_t* eval(expr_t* expr, expr_t* env) {
   switch (expr->type) {
     case EXPR_TYPE_NUMBER:
     case EXPR_TYPE_STRING:
-    case EXPR_TYPE_PRIMITIVE:
+    case EXPR_TYPE_PROC:
       return expr;
 
     case EXPR_TYPE_SYMBOL:
@@ -630,13 +569,10 @@ expr_t* make_number(int number) {
 }
 
 
-expr_t* primitive_add(expr_t* args) {
+expr_t* proc_add(expr_t* args) {
   int sum = 0;
 
   while (args) {
-    if (car(args)->type != EXPR_TYPE_NUMBER) {
-      error("argument not a number");
-    }
     sum += car(args)->value.number;
     args = cdr(args);
   }
@@ -645,13 +581,10 @@ expr_t* primitive_add(expr_t* args) {
 }
 
 
-expr_t* primitive_subtract(expr_t* args) {
+expr_t* proc_subtract(expr_t* args) {
   int sum = 0;
 
   while (args) {
-    if (car(args)->type != EXPR_TYPE_NUMBER) {
-      error("argument not a number");
-    }
     sum -= car(args)->value.number;
     args = cdr(args);
   }
@@ -660,36 +593,50 @@ expr_t* primitive_subtract(expr_t* args) {
 }
 
 
+expr_t* proc_car(expr_t* args) {
+  return caar(args);
+}
+
+
+expr_t* proc_cdr(expr_t* args) {
+  return cdar(args);
+}
+
+
+expr_t* proc_cons(expr_t* args) {
+  return cons(car(args), cadr(args));
+}
+
+
+expr_t* proc_atom(expr_t* args) {
+  return atom(car(args)) ? T : NULL;
+}
+
+
+expr_t* proc_eq(expr_t* args) {
+  return eq(car(args), cadr(args)) ? T : NULL;
+}
+
+
 expr_t* make_initial_env(void) {
   expr_t* env = NULL;
 
   env = cons(cons(NIL, NULL), env);
   env = cons(cons(T,   T   ), env);
-  env = cons(cons(intern("+"), make_primitive(primitive_add     )), env);
-  env = cons(cons(intern("-"), make_primitive(primitive_subtract)), env);
-  
+
+  env = cons(cons(intern("+"   ), make_proc(proc_add     )), env);
+  env = cons(cons(intern("-"   ), make_proc(proc_subtract)), env);
+  env = cons(cons(intern("CAR" ), make_proc(proc_car     )), env);
+  env = cons(cons(intern("CDR" ), make_proc(proc_cdr     )), env);
+  env = cons(cons(intern("CONS"), make_proc(proc_cons    )), env);
+  env = cons(cons(intern("ATOM"), make_proc(proc_atom    )), env);
+  env = cons(cons(intern("EQ"  ), make_proc(proc_eq      )), env);
+
   return env;
 }
 
 
-void init(void) {
-  ATOM   = intern("ATOM");
-  CAR    = intern("CAR");
-  CDR    = intern("CDR");
-  COND   = intern("COND");
-  CONS   = intern("CONS");
-  EQ     = intern("EQ");
-  LABEL  = intern("LABEL");
-  LAMBDA = intern("LAMBDA");
-  NIL    = intern("NIL");
-  QUOTE  = intern("QUOTE");
-  T      = intern("T");
-}
-
-
 int main(int argc, char* argv[]) {
-  init();
-
   expr_t* env = make_initial_env();
   expr_t* expr;
 
