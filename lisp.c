@@ -316,7 +316,7 @@ expr_t* make_atom(char* value) {
 
 
 expr_t* quote(expr_t* expr) {
-  return cons(QUOTE, cons(expr, NIL));
+  return cons(QUOTE, cons(expr, NULL));
 }
 
 
@@ -332,7 +332,7 @@ expr_t* parse(tokens_t* tokens, size_t* index) {
     case TOKEN_TYPE_QUOTE:
     {
       (*index)++;
-      return cons(QUOTE, cons(parse(tokens, index), NIL));
+      return cons(QUOTE, cons(parse(tokens, index), NULL));
     }
 
     case TOKEN_TYPE_DOT:
@@ -542,18 +542,15 @@ expr_t* pairlis(expr_t* x, expr_t* y, expr_t* env) {
 
 expr_t* apply(expr_t* fn, expr_t* x, expr_t* env) {
   switch (fn->type) {
-    case EXPR_TYPE_NUMBER:
-      error("cannot apply %d", fn->value.number);
-
-    case EXPR_TYPE_STRING:
-      error("cannot apply \"%s\"", fn->value.string);
+    case EXPR_TYPE_NUMBER: error("cannot apply %d",     fn->value.number);
+    case EXPR_TYPE_STRING: error("cannot apply \"%s\"", fn->value.string);
 
     case EXPR_TYPE_SYMBOL:
       if (eq(fn, CAR )) return caar(x);
       if (eq(fn, CDR )) return cdar(x);
       if (eq(fn, CONS)) return cons(car(x), cadr(x));
-      if (eq(fn, ATOM)) return atom(car(x))        ? T : NIL;
-      if (eq(fn, EQ  )) return eq(car(x), cadr(x)) ? T : NIL;
+      if (eq(fn, ATOM)) return atom(car(x))        ? T : NULL;
+      if (eq(fn, EQ  )) return eq(car(x), cadr(x)) ? T : NULL;
 
       return apply(eval(fn, env), x, env);
 
@@ -648,12 +645,28 @@ expr_t* primitive_add(expr_t* args) {
 }
 
 
+expr_t* primitive_subtract(expr_t* args) {
+  int sum = 0;
+
+  while (args) {
+    if (car(args)->type != EXPR_TYPE_NUMBER) {
+      error("argument not a number");
+    }
+    sum -= car(args)->value.number;
+    args = cdr(args);
+  }
+
+  return make_number(sum);
+}
+
+
 expr_t* make_initial_env(void) {
   expr_t* env = NULL;
 
-  env = cons(cons(NIL, NIL), env);
-  env = cons(cons(T,   T  ), env);
-  env = cons(cons(intern("+"), make_primitive(primitive_add)), env);
+  env = cons(cons(NIL, NULL), env);
+  env = cons(cons(T,   T   ), env);
+  env = cons(cons(intern("+"), make_primitive(primitive_add     )), env);
+  env = cons(cons(intern("-"), make_primitive(primitive_subtract)), env);
   
   return env;
 }
@@ -668,7 +681,7 @@ void init(void) {
   EQ     = intern("EQ");
   LABEL  = intern("LABEL");
   LAMBDA = intern("LAMBDA");
-  NIL    = NULL;
+  NIL    = intern("NIL");
   QUOTE  = intern("QUOTE");
   T      = intern("T");
 }
