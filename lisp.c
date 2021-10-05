@@ -38,8 +38,7 @@ typedef enum {
   EXPR_TYPE_PAIR,
   EXPR_TYPE_SYMBOL,
   EXPR_TYPE_STRING,
-  EXPR_TYPE_FLOATING,
-  EXPR_TYPE_FIXED,
+  EXPR_TYPE_NUMBER,
   EXPR_TYPE_PRIMITIVE
 } expr_type_t;
 
@@ -53,8 +52,7 @@ typedef struct expr_t {
     } pair;
     char*  symbol;
     char*  string;
-    double floating;
-    int    fixed;
+    int    number;
     struct expr_t* (*primitive)(struct expr_t*);
   } value;
 } expr_t;
@@ -247,8 +245,7 @@ void free_expr(expr_t* expr) {
       free(expr->value.string);
       break;
 
-    case EXPR_TYPE_FLOATING:
-    case EXPR_TYPE_FIXED:
+    case EXPR_TYPE_NUMBER:
     case EXPR_TYPE_PRIMITIVE:
       break;
   }
@@ -300,25 +297,21 @@ expr_t* make_primitive(primitive_t* primitive) {
 
 
 expr_t* make_atom(char* value) {
-  expr_t* expr = malloc(sizeof(expr_t));
-
   if (*value == '"') {
+    expr_t* expr       = malloc(sizeof(expr_t));
     expr->type         = EXPR_TYPE_STRING;
     expr->value.string = strndup(value + 1, strlen(value) - 2);
-  } else if (*value >= '0' && *value <= '9') {
-    upcase(value);
-    if (strchr(value, '.') || strchr(value, 'E')) {
-      expr->type           = EXPR_TYPE_FLOATING;
-      expr->value.floating = strtod(value, NULL);
-    } else {
-      expr->type        = EXPR_TYPE_FIXED;
-      expr->value.fixed = strtol(value, NULL, 10);
-    }
-  } else {
-    return intern(value);
+    return expr;
   }
 
-  return expr;
+  if (*value >= '0' && *value <= '9') {
+    expr_t* expr       = malloc(sizeof(expr_t));
+    expr->type         = EXPR_TYPE_NUMBER;
+    expr->value.number = strtol(value, NULL, 10);
+    return expr;
+  }
+
+  return intern(value);
 }
 
 
@@ -446,8 +439,8 @@ int eq(expr_t* a, expr_t* b) {
     return (strcmp(a->value.symbol, b->value.symbol) == 0);
   }
 
-  if (a->type == EXPR_TYPE_FIXED) {
-    return (a->value.fixed ==  b->value.fixed);
+  if (a->type == EXPR_TYPE_NUMBER) {
+    return (a->value.number ==  b->value.number);
   }
 
   return 0;
@@ -461,11 +454,10 @@ void print_helper(expr_t* expr, int do_print_brackets) {
   }
 
   switch (expr->type) {
-    case EXPR_TYPE_SYMBOL   : printf("%s", expr->value.symbol);   break;
-    case EXPR_TYPE_STRING   : printf("%s", expr->value.string);   break;
-    case EXPR_TYPE_FIXED    : printf("%d", expr->value.fixed);    break;
-    case EXPR_TYPE_FLOATING : printf("%f", expr->value.floating); break;
-    case EXPR_TYPE_PRIMITIVE: printf("<PRIMITIVE>");              break;
+    case EXPR_TYPE_SYMBOL   : printf("%s", expr->value.symbol); break;
+    case EXPR_TYPE_STRING   : printf("%s", expr->value.string); break;
+    case EXPR_TYPE_NUMBER   : printf("%d", expr->value.number); break;
+    case EXPR_TYPE_PRIMITIVE: printf("<PRIMITIVE>");            break;
 
     case EXPR_TYPE_PAIR:
       if (do_print_brackets) {
@@ -550,11 +542,8 @@ expr_t* pairlis(expr_t* x, expr_t* y, expr_t* env) {
 
 expr_t* apply(expr_t* fn, expr_t* x, expr_t* env) {
   switch (fn->type) {
-    case EXPR_TYPE_FIXED:
-      error("cannot apply %d", fn->value.fixed);
-
-    case EXPR_TYPE_FLOATING:
-      error("cannot apply %g", fn->value.floating);
+    case EXPR_TYPE_NUMBER:
+      error("cannot apply %d", fn->value.number);
 
     case EXPR_TYPE_STRING:
       error("cannot apply \"%s\"", fn->value.string);
@@ -615,8 +604,7 @@ expr_t* eval(expr_t* expr, expr_t* env) {
   }
 
   switch (expr->type) {
-    case EXPR_TYPE_FIXED:
-    case EXPR_TYPE_FLOATING:
+    case EXPR_TYPE_NUMBER:
     case EXPR_TYPE_STRING:
     case EXPR_TYPE_PRIMITIVE:
       return expr;
@@ -635,56 +623,28 @@ expr_t* eval(expr_t* expr, expr_t* env) {
 }
 
 
-expr_t* make_fixed(int fixed) {
+expr_t* make_number(int number) {
   expr_t* expr = malloc(sizeof(expr_t));
 
-  expr->type        = EXPR_TYPE_FIXED;
-  expr->value.fixed = fixed;
-
-  return expr;
-}
-
-
-expr_t* make_floating(double floating) {
-  expr_t* expr = malloc(sizeof(expr_t));
-
-  expr->type           = EXPR_TYPE_FLOATING;
-  expr->value.floating = floating;
+  expr->type         = EXPR_TYPE_NUMBER;
+  expr->value.number = number;
 
   return expr;
 }
 
 
 expr_t* primitive_add(expr_t* args) {
-  int    sum_fixed    = 0;
-  double sum_floating = 0;
-  int    is_fixed     = 1;
+  int sum = 0;
 
   while (args) {
-    switch (car(args)->type) {
-      case EXPR_TYPE_FIXED:
-        if (is_fixed) {
-          sum_fixed    += car(args)->value.fixed;
-        } else {
-          sum_floating += car(args)->value.fixed;
-        }
-        break;
-
-      case EXPR_TYPE_FLOATING:
-        if (is_fixed) {
-          sum_floating = sum_fixed;
-          is_fixed     = 0;
-        }
-        sum_floating += car(args)->value.floating;
-        break;
-
-      default:
-        error("argument not fixed type");
+    if (car(args)->type != EXPR_TYPE_NUMBER) {
+      error("argument not a number");
     }
+    sum += car(args)->value.number;
     args = cdr(args);
   }
 
-  return is_fixed ? make_fixed(sum_fixed) : make_floating(sum_floating);
+  return make_number(sum);
 }
 
 
