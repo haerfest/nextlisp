@@ -645,18 +645,46 @@ expr_t* make_fixed(int fixed) {
 }
 
 
+expr_t* make_floating(double floating) {
+  expr_t* expr = malloc(sizeof(expr_t));
+
+  expr->type           = EXPR_TYPE_FLOATING;
+  expr->value.floating = floating;
+
+  return expr;
+}
+
+
 expr_t* primitive_add(expr_t* args) {
-  int sum = 0;
+  int    sum_fixed    = 0;
+  double sum_floating = 0;
+  int    is_fixed     = 1;
 
   while (args) {
-    if (car(args)->type != EXPR_TYPE_FIXED) {
-      error("argument not fixed type");
+    switch (car(args)->type) {
+      case EXPR_TYPE_FIXED:
+        if (is_fixed) {
+          sum_fixed    += car(args)->value.fixed;
+        } else {
+          sum_floating += car(args)->value.fixed;
+        }
+        break;
+
+      case EXPR_TYPE_FLOATING:
+        if (is_fixed) {
+          sum_floating = sum_fixed;
+          is_fixed     = 0;
+        }
+        sum_floating += car(args)->value.floating;
+        break;
+
+      default:
+        error("argument not fixed type");
     }
-    sum += car(args)->value.fixed;
     args = cdr(args);
   }
-  
-  return make_fixed(sum);
+
+  return is_fixed ? make_fixed(sum_fixed) : make_floating(sum_floating);
 }
 
 
