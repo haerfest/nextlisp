@@ -476,14 +476,6 @@ expr_t* pairlis(expr_t* x, expr_t* y, expr_t* env) {
 
 
 expr_t* apply(expr_t* fn, expr_t* args, expr_t* env) {
-  printf("apply: fn=");
-  print(fn);
-  printf(", args=");
-  print(args);
-  printf(", env=");
-  print(env);
-  printf("\n");
-
   switch (fn->type) {
     case EXPR_TYPE_SYMBOL:
       return apply(eval(fn, env), args, env);
@@ -533,12 +525,6 @@ expr_t* assoc(expr_t* x, expr_t* env) {
 
 
 expr_t* eval(expr_t* expr, expr_t* env) {
-  printf("eval: expr=");
-  print(expr);
-  printf(", env=");
-  print(env);
-  printf("\n");
-
   if (expr == NULL) {
     return NULL;
   }
