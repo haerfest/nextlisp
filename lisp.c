@@ -39,7 +39,8 @@ typedef enum {
   EXPR_TYPE_SYMBOL,
   EXPR_TYPE_STRING,
   EXPR_TYPE_FLOATING,
-  EXPR_TYPE_FIXED
+  EXPR_TYPE_FIXED,
+  EXPR_TYPE_PRIMITIVE
 } expr_type_t;
 
 
@@ -54,8 +55,12 @@ typedef struct expr_t {
     char*  string;
     double floating;
     int    fixed;
+    struct expr_t* (*primitive)(struct expr_t*);
   } value;
 } expr_t;
+
+
+typedef expr_t* (primitive_t)(expr_t*);
 
 
 jmp_buf restart;
@@ -243,9 +248,8 @@ void free_expr(expr_t* expr) {
       break;
 
     case EXPR_TYPE_FLOATING:
-      break;
-
     case EXPR_TYPE_FIXED:
+    case EXPR_TYPE_PRIMITIVE:
       break;
   }
 
@@ -280,6 +284,16 @@ expr_t* cons(expr_t* car, expr_t* cdr) {
   expr->type           = EXPR_TYPE_PAIR;
   expr->value.pair.car = car;
   expr->value.pair.cdr = cdr;
+
+  return expr;
+}
+
+
+expr_t* make_primitive(primitive_t* primitive) {
+  expr_t* expr = malloc(sizeof(expr_t));
+
+  expr->type            = EXPR_TYPE_PRIMITIVE;
+  expr->value.primitive = primitive;
 
   return expr;
 }
@@ -447,10 +461,11 @@ void print_helper(expr_t* expr, int do_print_brackets) {
   }
 
   switch (expr->type) {
-    case EXPR_TYPE_SYMBOL  : printf("%s", expr->value.symbol);   break;
-    case EXPR_TYPE_STRING  : printf("%s", expr->value.string);   break;
-    case EXPR_TYPE_FIXED   : printf("%d", expr->value.fixed);    break;
-    case EXPR_TYPE_FLOATING: printf("%f", expr->value.floating); break;
+    case EXPR_TYPE_SYMBOL   : printf("%s", expr->value.symbol);   break;
+    case EXPR_TYPE_STRING   : printf("%s", expr->value.string);   break;
+    case EXPR_TYPE_FIXED    : printf("%d", expr->value.fixed);    break;
+    case EXPR_TYPE_FLOATING : printf("%f", expr->value.floating); break;
+    case EXPR_TYPE_PRIMITIVE: printf("<PRIMITIVE>");              break;
 
     case EXPR_TYPE_PAIR:
       if (do_print_brackets) {
@@ -468,6 +483,7 @@ void print_helper(expr_t* expr, int do_print_brackets) {
         printf(")");
       }
       break;
+
   }
 }
 
@@ -557,6 +573,9 @@ expr_t* apply(expr_t* fn, expr_t* x, expr_t* env) {
       if (eq(car(fn), LABEL )) return apply(caddr(fn), x, cons(cons(cadr(fn), caddr(fn)), env));
 
       error("cannot apply");
+
+    case EXPR_TYPE_PRIMITIVE:
+      return fn->value.primitive(x);
   }
 
   return NULL;
@@ -599,6 +618,7 @@ expr_t* eval(expr_t* expr, expr_t* env) {
     case EXPR_TYPE_FIXED:
     case EXPR_TYPE_FLOATING:
     case EXPR_TYPE_STRING:
+    case EXPR_TYPE_PRIMITIVE:
       return expr;
 
     case EXPR_TYPE_SYMBOL:
@@ -615,11 +635,37 @@ expr_t* eval(expr_t* expr, expr_t* env) {
 }
 
 
+expr_t* make_fixed(int fixed) {
+  expr_t* expr = malloc(sizeof(expr_t));
+
+  expr->type        = EXPR_TYPE_FIXED;
+  expr->value.fixed = fixed;
+
+  return expr;
+}
+
+
+expr_t* primitive_add(expr_t* args) {
+  int sum = 0;
+
+  while (args) {
+    if (car(args)->type != EXPR_TYPE_FIXED) {
+      error("argument not fixed type");
+    }
+    sum += car(args)->value.fixed;
+    args = cdr(args);
+  }
+  
+  return make_fixed(sum);
+}
+
+
 expr_t* make_initial_env(void) {
   expr_t* env = NULL;
 
   env = cons(cons(NIL, NIL), env);
   env = cons(cons(T,   T  ), env);
+  env = cons(cons(intern("+"), make_primitive(primitive_add)), env);
   
   return env;
 }
