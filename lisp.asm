@@ -31,6 +31,7 @@ NEXTREG_TILEMAP_DEF_ADDR     equ $6F
 main:
   call init
   call print_banner
+  call print_cursor
   jp   $
 
 
@@ -50,46 +51,58 @@ init_tilemap:
   nextreg NEXTREG_TILEMAP_OFFSET_X_MSB, 0
   nextreg NEXTREG_TILEMAP_OFFSET_X,     0
   nextreg NEXTREG_TILEMAP_OFFSET_Y,     0
-  nextreg NEXTREG_TILEMAP_CONTROL,      %10101001
+  nextreg NEXTREG_TILEMAP_CONTROL,      %10001001
 
   ;; Select tilemap palette.
   nextreg NEXTREG_ENHANCED_ULA_CTRL, %00110000
   nextreg NEXTREG_PALETTE_INDEX,     0
   nextreg NEXTREG_PALETTE_VALUE,     %00000000 ; #0 = black
   nextreg NEXTREG_PALETTE_VALUE,     %11111111 ; #1 = white
+  nextreg NEXTREG_PALETTE_VALUE,     %11011011 ; #2 = gray (dark)
+  nextreg NEXTREG_PALETTE_VALUE,     %01001001 ; #3 = gray (light)
 
   ;; Copy the ROM character set, which starts at character 32 (space).
   ;; The 128 characters take up 128 x 8 = 1024 = $400 bytes.
-  ld  hl,ROM_CHARACTER_SET
-  ld  de,$4000 + 32 * 8
-  ld  bc,$4000 - $3D00
+  ld   hl,ROM_CHARACTER_SET
+  ld   de,$4000 + 32 * 8
+  ld   bc,$4000 - $3D00
   ldir
 
   ret
 
-print_hl_at_bc:
-  ;; Make DE point to TILEMAP_ADDR[B][C]. 
-  ld  d,b
-  ld  e,32
-  mul de
-  ld  a,c
-  add de,a
-  add de,TILEMAP_ADDR
+cursor_at_bc: 
+  ld   d,b
+  ld   e,40 * 2                 ; 40 columns x 2 bytes
+  mul  de
+  ld   a,c
+  add  de,a                     ; x 2 bytes
+  add  de,a
+  add  de,TILEMAP_ADDR
+  ret
 
-  ;; Print each character until zero byte.
-.print:
-  ld  a,(hl)
-  or  a
-  ret z
-  ld  (de),a
-  inc hl
-  inc de
-  jr  .print
+print_cursor:
+  ld   bc,$0104                 ; cursor on L of NextLISP
+  call cursor_at_bc
+  inc  de                       ; to attribute byte
+  ld   a,1 << 1                 ; palette offset 2
+  ld   (de),a
+  ret
+
+print_hl:
+  ld   a,(hl)
+  or   a
+  ret  z
+  ld   (de),a
+  inc  hl
+  inc  de
+  inc  de                       ; skip attribute byte
+  jr   print_hl
   
 print_banner:
-  ld  hl,banner
-  ld  bc,0
-  jp  print_hl_at_bc
+  ld   bc,$0100
+  call cursor_at_bc
+  ld   hl,banner 
+  jp   print_hl
 
 banner:
   db "NextLISP (Built ", __DATE__, " ", __TIME__, ")",0
