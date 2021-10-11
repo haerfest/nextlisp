@@ -36,8 +36,38 @@ main:
 
 
 init:
+  call init_irq
   call init_tilemap
   ret
+
+init_irq:
+  di
+
+  ;; Fill IM 2 table at $66xx - $6700 (incl.) to point to $6767.
+  ld a,$67
+  ld hl,$6600
+  ld (hl),a
+  ld de,$6601
+  ld bc,256
+  ldir
+
+  ;; Copy IRQ handler to $6767.
+  ld  hl,irq_handler
+  ld  de,$6767
+  ld  bc,irq_handler_end - irq_handler
+  ldir
+
+  ;; Set I=$66 and switch on IM 2.
+  ld  a,$66
+  ld  i,a
+  im  2
+
+  ei
+  ret
+
+irq_handler:
+  jp $38
+irq_handler_end:
 
 init_tilemap:
   nextreg NEXTREG_ULA_CTRL,             %10000000
