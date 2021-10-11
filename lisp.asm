@@ -40,7 +40,7 @@ init:
   ret
 
 init_tilemap:
-  nextreg NEXTREG_ULA_CTRL,%10000000
+  nextreg NEXTREG_ULA_CTRL,             %10000000
   nextreg NEXTREG_TILEMAP_DEF_ADDR,     $00 ; $4000
   nextreg NEXTREG_TILEMAP_MAP_ADDR,     (TILEMAP_ADDR - $4000) >> 8
   nextreg NEXTREG_TILEMAP_DEFAULT_ATTR, %00000000
@@ -61,14 +61,17 @@ init_tilemap:
   nextreg NEXTREG_PALETTE_VALUE,     %11011011 ; #2 = gray (dark)
   nextreg NEXTREG_PALETTE_VALUE,     %01001001 ; #3 = gray (light)
 
-  ;; Copy the ROM character set, which starts at character 32 (space).
+  ;; Copy the character set, which starts at character 32 (space).
   ;; The 128 characters take up 128 x 8 = 1024 = $400 bytes.
-  ld   hl,ROM_CHARACTER_SET
+  ld   hl,font
   ld   de,$4000 + 32 * 8
-  ld   bc,$4000 - $3D00
+  ld   bc,768
   ldir
 
   ret
+
+font:
+  incbin "font.bin"
 
 cursor_at_bc: 
   ld   d,b
