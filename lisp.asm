@@ -133,7 +133,7 @@ cursor_to_bc:
   ret
 
 print_cursor:
-  ld   bc,$0104                 ; cursor on L of NextLISP
+  ld   bc,$0200
   call cursor_to_bc
   inc  de                       ; to attribute byte
   ld   a,1 << 1                 ; palette offset 2
@@ -151,7 +151,7 @@ print_hl:
   jr   print_hl
   
 print_banner:
-  ld   bc,$0100
+  ld   bc,$0000
   call cursor_to_bc
   ld   hl,banner 
   jp   print_hl
