@@ -8,6 +8,7 @@
   ;;   20 LOAD "lisp.bin" CODE %$6000
   ;;   30 RANDOMIZE % USR $6000
 
+CURSOR_BLINK_RATE            equ 25
 ROM_CHARACTER_SET            equ $3D00
 TILEMAP_ADDR                 equ $4000 + 1024
 
@@ -66,7 +67,23 @@ init_irq:
   ret
 
 irq_handler:
-  jp $38
+  push af
+  push hl
+  ld   hl,cursor_counter
+  dec  (hl)
+  jr   nz,.irq_end
+  ld   (hl),CURSOR_BLINK_RATE
+  ld   a,(cursor_visible)
+  xor  1
+  ld   (cursor_visible),a
+  sla  a
+  ld   hl,(cursor_addr)
+  inc  hl
+  ld   (hl),a
+.irq_end:
+  pop  hl
+  pop  af
+  jp   $38
 irq_handler_end:
 
 init_tilemap:
@@ -103,7 +120,8 @@ init_tilemap:
 font:
   incbin "font.bin"
 
-cursor_at_bc: 
+cursor_to_bc:
+  ld   (cursor_x),bc
   ld   d,b
   ld   e,40 * 2                 ; 40 columns x 2 bytes
   mul  de
@@ -111,11 +129,12 @@ cursor_at_bc:
   add  de,a                     ; x 2 bytes
   add  de,a
   add  de,TILEMAP_ADDR
+  ld   (cursor_addr),de
   ret
 
 print_cursor:
   ld   bc,$0104                 ; cursor on L of NextLISP
-  call cursor_at_bc
+  call cursor_to_bc
   inc  de                       ; to attribute byte
   ld   a,1 << 1                 ; palette offset 2
   ld   (de),a
@@ -133,9 +152,21 @@ print_hl:
   
 print_banner:
   ld   bc,$0100
-  call cursor_at_bc
+  call cursor_to_bc
   ld   hl,banner 
   jp   print_hl
 
 banner:
   db "NextLISP (Built ", __DATE__, " ", __TIME__, ")",0
+
+  ;; 16-bit BC is stored here. 
+cursor_x:
+  db 0
+cursor_y:
+  db 0
+cursor_addr:
+  dw TILEMAP_ADDR
+cursor_visible:
+  db 0
+cursor_counter:
+  db CURSOR_BLINK_RATE
