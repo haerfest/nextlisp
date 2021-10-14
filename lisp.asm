@@ -98,7 +98,7 @@ init_tilemap:
   nextreg NEXTREG_TILEMAP_OFFSET_X_MSB, 0
   nextreg NEXTREG_TILEMAP_OFFSET_X,     0
   nextreg NEXTREG_TILEMAP_OFFSET_Y,     0
-  nextreg NEXTREG_TILEMAP_CONTROL,      %10001001
+  nextreg NEXTREG_TILEMAP_CONTROL,      %11001001
 
   ;; Select tilemap palette.
   nextreg NEXTREG_ENHANCED_ULA_CTRL, %00110000
@@ -123,7 +123,7 @@ font:
 cursor_to_bc:
   ld   (cursor_x),bc
   ld   d,b
-  ld   e,40 * 2                 ; 40 columns x 2 bytes
+  ld   e,80 * 2                 ; 80 columns x 2 bytes
   mul  de
   ld   a,c
   add  de,a                     ; x 2 bytes
