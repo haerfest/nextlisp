@@ -3,7 +3,7 @@
 cursor_blink_interval			equ 50
 dos_version				equ $0103
 entry_bank				equ 0
-stack					equ $c3f0
+stack					equ $dfff
 tile_definitions_offset			equ $5D00 - $4000  ; 1,024 bytes at [$5D00, $6100)
 tilemap_offset				equ $6100 - $4000  ; 2,560 bytes at [$6100, $6B00)
 
@@ -43,20 +43,20 @@ init_irq:
 	di
 
 	; IRQ handler at $CFCF is a single JP .irq.
-	ld	a, $C3
-	ld	($CFCF), a
+	ld	a, $c3
+	ld	($cfcf), a
 	ld	hl, .irq
-	ld	($CFD0), hl
+	ld	($cfd0), hl
 
 	; Store pointers to IRQ handler at [$CE00, $CF00].
-	ld	hl, $CE00
-	ld	(hl), $CF
-	ld	de, $CE01
+	ld	hl, $ce00
+	ld	(hl), $cf
+	ld	de, $ce01
 	ld	bc, 256
 	ldir
 
 	; Switch to IM 2.
-	ld	a, $CE
+	ld	a, $ce
 	ld	i, a
 	im	2
 	
@@ -66,7 +66,7 @@ init_irq:
 .irq:
 	push	af, hl
 
-	ld	hl, .counter
+	ld	hl, .cursor_counter
 	dec	(hl)
 	jr	nz, .skip
 	
@@ -74,14 +74,15 @@ init_irq:
 	
 	ld	hl, $4000 + tilemap_offset + 2 * (40 * 2) + 1
 	ld	a, (hl)
-	xor	2
+	or	2
+	xor	4
 	ld	(hl), a
 .skip:
 	pop	hl, af
 	ei
 	reti
 
-.counter:
+.cursor_counter:
 	db cursor_blink_interval
 
 ; -----------------------------------------------------------------------------
@@ -103,8 +104,14 @@ init_tilemap:
 	; Initialise the tilemap palette.
 	nextreg reg_palette_control, %00110000
 	nextreg reg_palette_index, 0
-	nextreg reg_palette_value, %10110110  ; background = gray
-	nextreg reg_palette_value, %00000000  ; foreground = black
+	nextreg reg_palette_value, %10110110  ; 0 = gray   \ normal
+	nextreg reg_palette_value, %00000000  ; 1 = black  / text
+	nextreg reg_palette_value, %00000011  ; 2 = blue   \ cursor
+	nextreg reg_palette_value, %11111111  ; 3 = white  / blink 1
+	nextreg reg_palette_value, %00000000  ; 4 = black  \ dummy
+	nextreg reg_palette_value, %00000000  ; 5 = black  /
+	nextreg reg_palette_value, %11111111  ; 6 = white  \ cursor
+	nextreg reg_palette_value, %00000000  ; 7 = black  / blink 2
 
 	; Load the tilemap font.
 	nextreg reg_tilemap_base_address, tilemap_offset >> 8
@@ -149,11 +156,11 @@ cls:
 	push	af, bc, hl
 	
 	ld	hl, $4000 + tilemap_offset
-	ld	bc, 32 * 80 * 2
+	ld	bc, 32 * 40 * 2
 .loop:
 	ld	(hl), ' '
 	inc	hl
-	ld	(hl), 1  ; white
+	ld	(hl), 0
 	inc	hl
 	dec	bc
 	ld	a, b
