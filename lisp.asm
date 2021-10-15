@@ -1,5 +1,6 @@
 	device zxspectrumnext
 
+cursor_blink_interval			equ 50
 dos_version				equ $0103
 entry_bank				equ 0
 stack					equ $c3f0
@@ -28,11 +29,60 @@ reg_tile_definitions_base_address	equ $6f
 ; Main program.
 ; -----------------------------------------------------------------------------
 main:
+	call	init_irq
 	call	init_tilemap
 	call	cls
 	call	banner
 
 	jp	$
+
+; -----------------------------------------------------------------------------
+; Takes over the IRQ handling.
+; -----------------------------------------------------------------------------
+init_irq:
+	di
+
+	; IRQ handler at $CFCF is a single JP .irq.
+	ld	a, $C3
+	ld	($CFCF), a
+	ld	hl, .irq
+	ld	($CFD0), hl
+
+	; Store pointers to IRQ handler at [$CE00, $CF00].
+	ld	hl, $CE00
+	ld	(hl), $CF
+	ld	de, $CE01
+	ld	bc, 256
+	ldir
+
+	; Switch to IM 2.
+	ld	a, $CE
+	ld	i, a
+	im	2
+	
+	ei
+	ret
+
+.irq:
+	push	af, hl
+
+	ld	hl, .counter
+	dec	(hl)
+	jr	nz, .skip
+	
+	ld	(hl), cursor_blink_interval
+	
+	ld	hl, $4000 + tilemap_offset + 2 * (40 * 2) + 1
+	ld	a, (hl)
+	xor	2
+	ld	(hl), a
+.skip:
+	pop	hl, af
+	ei
+	reti
+
+.counter:
+	db cursor_blink_interval
 
 ; -----------------------------------------------------------------------------
 ; Initialises the tilemap.
