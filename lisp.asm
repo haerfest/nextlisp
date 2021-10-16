@@ -3,7 +3,7 @@
 columns					equ 40
 rows					equ 32
 
-cursor_blink_interval			equ 25
+cursor_blink_interval			equ 15
 entry_bank				equ 0
 port_ula				equ $fe
 rom_keyboard				equ $02bf
@@ -214,24 +214,8 @@ print_char:
 	cp	$0d
 	jr	z, print_newline
 
-	; Multiply cursor Y by #columns and cell size.
-	ld	hl, cursor_y
-	ld	d, (hl)
-	ld	e, columns * 2
-	mul	de
-
-	; Double cursor X.
-	ld	hl, cursor_x
-	ld	b, 0
-	ld	c, (hl)
-	sla	c
-	
-	; Add Y and X to tilemap offset.
-	ld	hl, $4000 + tilemap_offset  ; assumes bank 5 mapped in
-	add	hl, de
-	add	hl, bc
-
 	; Store character and advance cursor.
+	ld	hl, (cursor_offset)
 	ld	(hl), a
 	call	.advance_cursor
 	ret
@@ -242,10 +226,7 @@ print_char:
 ; TODO: Scrolling.
 ; -----------------------------------------------------------------------------
 .advance_cursor:
-	; Clear the old cursor.
-	ld	hl, (cursor_offset)
-	inc	hl
-	ld	(hl), 0
+	call	clear_cursor
 	
 	; Advance cursor X, check for end of line.
 	ld	a, (cursor_x)
@@ -262,11 +243,23 @@ print_char:
 	ret
 
 ; -----------------------------------------------------------------------------
+; Clears the cursor.
+; -----------------------------------------------------------------------------
+clear_cursor:
+	; Reset the attribute cell.
+	ld	hl, (cursor_offset)
+	inc	hl
+	ld	(hl), 0
+	ret
+
+; -----------------------------------------------------------------------------
 ; Prints a newline and advances the cursor.
 ;
 ; TODO: Scrolling.
 ; -----------------------------------------------------------------------------
 print_newline:
+	call	clear_cursor
+
 	; Set cursor X to beginning of line.
 	xor	a
 	ld	(cursor_x), a
