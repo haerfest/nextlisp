@@ -3,6 +3,13 @@
 columns					equ 40
 rows					equ 32
 
+left					equ $08
+right					equ $09
+down					equ $0a
+up					equ $0b
+backspace				equ $0c
+newline					equ $0d
+
 cursor_blink_interval			equ 15
 entry_bank				equ 0
 port_ula				equ $fe
@@ -210,9 +217,11 @@ banner:
 ; Destroys: BC, DE, HL.
 ; -----------------------------------------------------------------------------
 print_char:
-	; Handle newline separately.
-	cp	$0d
-	jr	z, print_newline
+	; Handle special characters separately.
+	cp	newline
+	jr	z, .print_newline
+	cp	backspace
+	jr	z, .print_backspace
 
 	; Store character and advance cursor.
 	ld	hl, (cursor_offset)
@@ -226,12 +235,12 @@ print_char:
 ; TODO: Scrolling.
 ; -----------------------------------------------------------------------------
 .advance_cursor:
-	call	clear_cursor
+	call	.clear_cursor
 	
 	; Advance cursor X, check for end of line.
 	ld	a, (cursor_x)
 	cp	columns - 1
-	jr	z, print_newline
+	jr	z, .print_newline
 
 	; Not end of line, increase and store cursor X.
 	inc	a
@@ -245,7 +254,7 @@ print_char:
 ; -----------------------------------------------------------------------------
 ; Clears the cursor.
 ; -----------------------------------------------------------------------------
-clear_cursor:
+.clear_cursor:
 	; Reset the attribute cell.
 	ld	hl, (cursor_offset)
 	inc	hl
@@ -257,8 +266,8 @@ clear_cursor:
 ;
 ; TODO: Scrolling.
 ; -----------------------------------------------------------------------------
-print_newline:
-	call	clear_cursor
+.print_newline:
+	call	.clear_cursor
 
 	; Set cursor X to beginning of line.
 	xor	a
@@ -272,18 +281,78 @@ print_newline:
 	xor	a
 .store_y:
 	ld	(cursor_y), a
+	call	.update_cursor_offset
+	ret
 
-	; Update the cursor offset.
+; -----------------------------------------------------------------------------
+; Handles a backspace character.
+; -----------------------------------------------------------------------------
+.print_backspace:
+	call	.clear_cursor
+
+	; Move cursor one location back.
+	ld	a, (cursor_x)
+	or	a
+	jr	z, .at_beginning_of_line
+	dec	a
+	ld	(cursor_x), a
+	jr	.update_and_erase
+
+.at_beginning_of_line:
+	; Cursor is at beginning of a line, move one line up.
+	ld	a, (cursor_y)
+	or	a
+	jr	nz, .to_end_of_previous_line
+	ld	a, rows
+.to_end_of_previous_line:
+	dec	a
+	ld	(cursor_y), a
+	
+	; Find end of text on this line.
+	ld	a, columns - 1
+	ld	(cursor_x), a
+.search:
+	; Do we have a non-space here?
+	call	.update_cursor_offset
+	ld	hl, (cursor_offset)
+	ld	a, (hl)
+	cp	' '
+	jr	nz, .erase
+
+	; No, decrease cursor X and keep searching.
+	ld	a, (cursor_x)
+	dec	a
+	ld	(cursor_x), a
+	jr	nz, .search
+
+.update_and_erase:
+	call	.update_cursor_offset
+.erase:
+	ld	hl, (cursor_offset)
+	ld	a, ' '
+	ld	(hl), a
+
+	ret
+
+; -----------------------------------------------------------------------------
+; Updates cursor_offset from cursor_{x,y}.
+;
+; Destroys: BC, DE, HL.
+; -----------------------------------------------------------------------------
+.update_cursor_offset:
+	; Multiply cursor Y by columns and two cells (character + attribute).
 	ld	hl, cursor_y
 	ld	d, (hl)
 	ld	e, columns * 2
 	mul	de
 
+	; Multiply cursor X by two cells.
 	ld	hl, cursor_x
 	ld	b, 0
 	ld	c, (hl)
-	sla	a
+	sla	c
 
+	; Add both to the tilemap address and store.
 	ld	hl, $4000 + tilemap_offset
 	add	hl, de
 	add	hl, bc
@@ -312,12 +381,12 @@ cls:
 	ret
 
 ; -----------------------------------------------------------------------------
-; Cursor Y position [0, 31].
+; Cursor Y position [0, rows).
 ; -----------------------------------------------------------------------------
 cursor_y:
 	db 0
 ; -----------------------------------------------------------------------------
-; Cursor X position [0, 79].
+; Cursor X position [0, columns).
 ; -----------------------------------------------------------------------------
 cursor_x:
 	db 0
