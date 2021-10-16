@@ -64,26 +64,57 @@ init_irq:
 	ret
 
 .irq:
-	push	af, hl
+	push	af, de, hl
 
+	; 
 	ld	hl, .cursor_counter
 	dec	(hl)
-	jr	nz, .skip
-	
+	jr	nz, .done
+
 	ld	(hl), cursor_blink_interval
+	call	.blink_cursor
+
+.done:
+	pop	hl, de, af
+	ei
+	reti
+
+; -----------------------------------------------------------------------------
+; Blinks the cursor by changing a cell's palette offset.
+;
+; Destroys: AF, DE, HL.
+; -----------------------------------------------------------------------------
+.blink_cursor:
+	; Multiply cursor's X position by two (cells).
+	ld	a, (cursor_x)
+	sla	a
+	ld	h, 0
+	ld	l, a
+
+	; Multiply cursor's Y position by #colums and two.
+	ld	a, (cursor_y)
+	ld	d, a
+	ld	e, 40 * 2
+	mul
+
+	; Add it all up to find the cell's tilemap address.
+	add	hl, $4000 + tilemap_offset + 1
+	add	hl, de
 	
-	ld	hl, $4000 + tilemap_offset + 2 * (40 * 2) + 1
+	; Toggle the attribute cell between palette offsets 2 and 6.
 	ld	a, (hl)
 	or	2
 	xor	4
 	ld	(hl), a
-.skip:
-	pop	hl, af
-	ei
-	reti
+
+	ret
 
 .cursor_counter:
 	db cursor_blink_interval
+cursor_y:
+	db 2
+cursor_x:
+	db 0
 
 ; -----------------------------------------------------------------------------
 ; Initialises the tilemap.
