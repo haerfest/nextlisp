@@ -54,6 +54,9 @@ read:
 	ld	hl, sysvars_flags
 	bit	5, (hl)
 	ret	z
+	
+	; Signal that we read the key.
+	res	5, (hl)
 
 	; Echo the key.
 	ld	a, (sysvars_last_k)
@@ -123,22 +126,10 @@ init_irq:
 ; Destroys: AF, DE, HL.
 ; -----------------------------------------------------------------------------
 .blink_cursor:
-	; Multiply cursor's X position by two (cells).
-	ld	a, (cursor_x)
-	sla	a
-	ld	h, 0
-	ld	l, a
+	; Point to the attribute cell at the current cursor location.
+	ld	hl, (cursor_offset)
+	inc	hl
 
-	; Multiply cursor's Y position by #colums and two.
-	ld	a, (cursor_y)
-	ld	d, a
-	ld	e, columns * 2
-	mul
-
-	; Add it all up to find the cell's tilemap address.
-	add	hl, $4000 + tilemap_offset + 1
-	add	hl, de
-	
 	; Toggle the attribute cell between palette offsets 2 and 6.
 	ld	a, (hl)
 	or	2
@@ -251,6 +242,11 @@ print_char:
 ; TODO: Scrolling.
 ; -----------------------------------------------------------------------------
 .advance_cursor:
+	; Clear the old cursor.
+	ld	hl, (cursor_offset)
+	inc	hl
+	ld	(hl), 0
+	
 	; Advance cursor X, check for end of line.
 	ld	a, (cursor_x)
 	cp	columns - 1
@@ -259,6 +255,10 @@ print_char:
 	; Not end of line, increase and store cursor X.
 	inc	a
 	ld	(cursor_x), a
+
+	; Update the cursor offset.
+	inc	hl
+	ld	(cursor_offset), hl
 	ret
 
 ; -----------------------------------------------------------------------------
@@ -279,6 +279,22 @@ print_newline:
 	xor	a
 .store_y:
 	ld	(cursor_y), a
+
+	; Update the cursor offset.
+	ld	hl, cursor_y
+	ld	d, (hl)
+	ld	e, columns * 2
+	mul	de
+
+	ld	hl, cursor_x
+	ld	b, 0
+	ld	c, (hl)
+	sla	a
+
+	ld	hl, $4000 + tilemap_offset
+	add	hl, de
+	add	hl, bc
+	ld	(cursor_offset), hl
 	ret
 
 ; -----------------------------------------------------------------------------
@@ -312,6 +328,11 @@ cursor_y:
 ; -----------------------------------------------------------------------------
 cursor_x:
 	db 0
+; -----------------------------------------------------------------------------
+; Cursor offset in bank 5, always synchronised with cursor_{x,y}.
+; -----------------------------------------------------------------------------
+cursor_offset:
+	dw $4000 + tilemap_offset
 
 	savenex	open "nextlisp.nex", main, stack, entry_bank
 	savenex auto
