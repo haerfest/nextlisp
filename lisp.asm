@@ -219,9 +219,17 @@ banner:
 print_char:
 	; Handle special characters separately.
 	cp	newline
-	jr	z, .print_newline
+	jp	z, .print_newline
 	cp	backspace
-	jr	z, .print_backspace
+	jp	z, .print_backspace
+	cp	up
+	jp	z, .print_up
+	cp	down
+	jp	z, .print_down
+	cp	left
+	jp	z, .print_left
+	cp	right
+	jp	z, .print_right
 
 	; Store character and advance cursor.
 	ld	hl, (cursor_offset)
@@ -253,6 +261,8 @@ print_char:
 
 ; -----------------------------------------------------------------------------
 ; Clears the cursor.
+;
+; Destroys: HL.
 ; -----------------------------------------------------------------------------
 .clear_cursor:
 	; Reset the attribute cell.
@@ -333,6 +343,42 @@ print_char:
 	ld	(hl), a
 
 	ret
+
+.print_up:
+	ld	a, (cursor_y)
+	or	a
+	ret	z
+	call	.clear_cursor
+	dec	a
+	ld	(cursor_y), a
+	jp	.update_cursor_offset
+
+.print_down:
+	ld	a, (cursor_y)
+	cp	rows - 1
+	ret	z
+	call	.clear_cursor
+	inc	a
+	ld	(cursor_y), a
+	jp	.update_cursor_offset
+
+.print_left:
+	ld	a, (cursor_x)
+	or	a
+	ret	z
+	call	.clear_cursor
+	dec	a
+	ld	(cursor_x), a
+	jp	.update_cursor_offset
+
+.print_right:
+	ld	a, (cursor_x)
+	cp	columns - 1
+	ret	z
+	call	.clear_cursor
+	inc	a
+	ld	(cursor_x), a
+	jp	.update_cursor_offset
 
 ; -----------------------------------------------------------------------------
 ; Updates cursor_offset from cursor_{x,y}.
