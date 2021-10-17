@@ -1,6 +1,6 @@
 	device zxspectrumnext
 
-columns					equ 40
+columns					equ 80
 rows					equ 32
 
 left					equ $08
@@ -125,7 +125,7 @@ init_irq:
 ; Counter used to blink the cursor at a fixed rate.
 ; -----------------------------------------------------------------------------
 .cursor_blink_counter:
-	db cursor_blink_interval
+	db	cursor_blink_interval
 
 ; -----------------------------------------------------------------------------
 ; Blinks the cursor by changing a cell's palette offset.
@@ -133,45 +133,51 @@ init_irq:
 ; Destroys: AF, DE, HL.
 ; -----------------------------------------------------------------------------
 .blink_cursor:
+	; Toggle the cursor blink state between palette offsets 2 and 6.
+	ld	a, (cursor_palette_offset)
+	or	2
+	xor	4
+	ld	(cursor_palette_offset), a
+
 	; Point to the attribute cell at the current cursor location.
 	ld	hl, (cursor_offset)
 	inc	hl
 
-	; Toggle the attribute cell between palette offsets 2 and 6.
-	ld	a, (hl)
-	or	2
-	xor	4
+	; Set the attribute cell.
 	ld	(hl), a
-
 	ret
 
 ; -----------------------------------------------------------------------------
 ; Initialises the tilemap.
 ; -----------------------------------------------------------------------------
 init_tilemap:
-	nextreg reg_tilemap_x_scroll_msb, 0
-	nextreg reg_tilemap_x_scroll_lsb, 0
-	nextreg reg_tilemap_offset_y, 0
-	nextreg	reg_clip_window_tilemap, 0
-	nextreg	reg_clip_window_tilemap, 159
-	nextreg	reg_clip_window_tilemap, 0
-	nextreg	reg_clip_window_tilemap, 255
+	nextreg reg_tilemap_x_scroll_msb,       0
+	nextreg reg_tilemap_x_scroll_lsb,       0
+	nextreg reg_tilemap_offset_y,           0
+	nextreg	reg_clip_window_tilemap,        0
+	nextreg	reg_clip_window_tilemap,        159
+	nextreg	reg_clip_window_tilemap,        0
+	nextreg	reg_clip_window_tilemap,        255
 	nextreg reg_tilemap_transparency_index, $0f
-	nextreg reg_ula_control, %10100000
-	nextreg reg_display_control, 0
-	nextreg reg_tilemap_control, %10001001
+	nextreg reg_ula_control,                %10100000
+	nextreg reg_display_control,            0
+	if columns == 40
+	nextreg reg_tilemap_control,            %10001001
+	else
+	nextreg reg_tilemap_control,            %11001001
+	endif
 	
 	; Initialise the tilemap palette.
 	nextreg reg_palette_control, %00110000
-	nextreg reg_palette_index, 0
-	nextreg reg_palette_value, %10110110  ; 0 = gray   \ normal
-	nextreg reg_palette_value, %00000000  ; 1 = black  / text
-	nextreg reg_palette_value, %00000011  ; 2 = blue   \ cursor
-	nextreg reg_palette_value, %11111111  ; 3 = white  / blink 1
-	nextreg reg_palette_value, %00000000  ; 4 = black  \ dummy
-	nextreg reg_palette_value, %00000000  ; 5 = black  /
-	nextreg reg_palette_value, %11111111  ; 6 = white  \ cursor
-	nextreg reg_palette_value, %00000000  ; 7 = black  / blink 2
+	nextreg reg_palette_index,   0
+	nextreg reg_palette_value,   %10110110  ; 0 = gray   \ normal
+	nextreg reg_palette_value,   %00000000  ; 1 = black  / text
+	nextreg reg_palette_value,   %00000011  ; 2 = blue   \ cursor
+	nextreg reg_palette_value,   %11111111  ; 3 = white  / blink 1
+	nextreg reg_palette_value,   %00000000  ; 4 = black  \ dummy
+	nextreg reg_palette_value,   %00000000  ; 5 = black  /
+	nextreg reg_palette_value,   %11111111  ; 6 = white  \ cursor
+	nextreg reg_palette_value,   %00000000  ; 7 = black  / blink 2
 
 	; Load the tilemap font.
 	nextreg reg_tilemap_base_address, tilemap_offset >> 8
@@ -242,13 +248,13 @@ print_char:
 ;
 ; TODO: Scrolling.
 ; -----------------------------------------------------------------------------
-.advance_cursor:
-	call	.clear_cursor
-	
+.advance_cursor:	
 	; Advance cursor X, check for end of line.
 	ld	a, (cursor_x)
 	cp	columns - 1
 	jr	z, .print_newline
+	
+	call	.hide_cursor
 
 	; Not end of line, increase and store cursor X.
 	inc	a
@@ -257,6 +263,8 @@ print_char:
 	; Update the cursor offset.
 	inc	hl
 	ld	(cursor_offset), hl
+	
+	call	.show_cursor
 	ret
 
 ; -----------------------------------------------------------------------------
@@ -264,11 +272,24 @@ print_char:
 ;
 ; Destroys: HL.
 ; -----------------------------------------------------------------------------
-.clear_cursor:
+.hide_cursor:
 	; Reset the attribute cell.
 	ld	hl, (cursor_offset)
 	inc	hl
 	ld	(hl), 0
+	ret
+
+; -----------------------------------------------------------------------------
+; Shows the cursor.
+;
+; Destroys: A, HL.
+; -----------------------------------------------------------------------------
+.show_cursor:
+	; Set the attribute cell.
+	ld	a, (cursor_palette_offset)
+	ld	hl, (cursor_offset)
+	inc	hl
+	ld	(hl), a
 	ret
 
 ; -----------------------------------------------------------------------------
@@ -277,7 +298,7 @@ print_char:
 ; TODO: Scrolling.
 ; -----------------------------------------------------------------------------
 .print_newline:
-	call	.clear_cursor
+	call	.hide_cursor
 
 	; Set cursor X to beginning of line.
 	xor	a
@@ -292,13 +313,15 @@ print_char:
 .store_y:
 	ld	(cursor_y), a
 	call	.update_cursor_offset
+	
+	call	.show_cursor
 	ret
 
 ; -----------------------------------------------------------------------------
 ; Handles a backspace character.
 ; -----------------------------------------------------------------------------
 .print_backspace:
-	call	.clear_cursor
+	call	.hide_cursor
 
 	; Move cursor one location back.
 	ld	a, (cursor_x)
@@ -337,6 +360,7 @@ print_char:
 
 .update_and_erase:
 	call	.update_cursor_offset
+	call	.show_cursor
 .erase:
 	ld	hl, (cursor_offset)
 	ld	a, ' '
@@ -348,37 +372,41 @@ print_char:
 	ld	a, (cursor_y)
 	or	a
 	ret	z
-	call	.clear_cursor
+	call	.hide_cursor
 	dec	a
 	ld	(cursor_y), a
-	jp	.update_cursor_offset
+	call	.update_cursor_offset
+	jp	.show_cursor
 
 .print_down:
 	ld	a, (cursor_y)
 	cp	rows - 1
 	ret	z
-	call	.clear_cursor
+	call	.hide_cursor
 	inc	a
 	ld	(cursor_y), a
-	jp	.update_cursor_offset
+	call	.update_cursor_offset
+	jp	.show_cursor
 
 .print_left:
 	ld	a, (cursor_x)
 	or	a
 	ret	z
-	call	.clear_cursor
+	call	.hide_cursor
 	dec	a
 	ld	(cursor_x), a
-	jp	.update_cursor_offset
+	call	.update_cursor_offset
+	jp	.show_cursor
 
 .print_right:
 	ld	a, (cursor_x)
 	cp	columns - 1
 	ret	z
-	call	.clear_cursor
+	call	.hide_cursor
 	inc	a
 	ld	(cursor_x), a
-	jp	.update_cursor_offset
+	call	.update_cursor_offset
+	jp	.show_cursor
 
 ; -----------------------------------------------------------------------------
 ; Updates cursor_offset from cursor_{x,y}.
@@ -427,20 +455,25 @@ cls:
 	ret
 
 ; -----------------------------------------------------------------------------
+; Cursor blink state, zero or one.
+; -----------------------------------------------------------------------------
+cursor_palette_offset
+	db	0
+; -----------------------------------------------------------------------------
 ; Cursor Y position [0, rows).
 ; -----------------------------------------------------------------------------
 cursor_y:
-	db 0
+	db	0
 ; -----------------------------------------------------------------------------
 ; Cursor X position [0, columns).
 ; -----------------------------------------------------------------------------
 cursor_x:
-	db 0
+	db	0
 ; -----------------------------------------------------------------------------
 ; Cursor offset in bank 5, always synchronised with cursor_{x,y}.
 ; -----------------------------------------------------------------------------
 cursor_offset:
-	dw $4000 + tilemap_offset
+	dw	$4000 + tilemap_offset
 
 	savenex	open "nextlisp.nex", main, stack, entry_bank
 	savenex auto
