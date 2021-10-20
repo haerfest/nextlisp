@@ -236,6 +236,8 @@ print_char:
 	jp	z, .print_left
 	cp	right
 	jp	z, .print_right
+	cp	' '
+	ret	s
 
 	; Store character and advance cursor.
 	ld	hl, (cursor_offset)
